@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { IdleControls } from "@/components/recorder/idle-controls";
 import { RecordingHud } from "@/components/recorder/recording-hud";
-import { Preview } from "@/components/recorder/preview";
+import { Editor } from "@/components/recorder/editor";
 import { Countdown } from "@/components/recorder/countdown";
 import { Unsupported } from "@/components/recorder/unsupported";
 
@@ -103,7 +103,7 @@ export function RecorderShell() {
             onToggleMic={toggleMicMuted}
           />
         ) : status === "stopped" && recording ? (
-          <Preview recording={recording} onReset={reset} />
+          <Editor recording={recording} onReset={reset} />
         ) : (
           <IdleControls
             onStart={startRecording}
