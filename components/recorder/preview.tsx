@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import type { Recording } from "@/lib/use-screen-recorder";
@@ -27,6 +28,31 @@ export function Preview({
   onReset: () => void;
 }) {
   const format = fileExtension(recording.mimeType).toUpperCase();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Space toggles play/pause on the preview, unless a control is focused.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.code !== "Space") return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "BUTTON" ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const video = videoRef.current;
+      if (!video) return;
+      event.preventDefault();
+      if (video.paused) video.play().catch(() => {});
+      else video.pause();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function handleDownload() {
     const filename = downloadName(recording.mimeType);
@@ -42,6 +68,7 @@ export function Preview({
   return (
     <div className="flex w-full max-w-3xl flex-col gap-6">
       <video
+        ref={videoRef}
         key={recording.url}
         src={recording.url}
         controls
@@ -57,6 +84,13 @@ export function Preview({
           {formatDuration(recording.durationMs)}
           <span aria-hidden>·</span>
           {formatBytes(recording.size)}
+          <span aria-hidden>·</span>
+          <span className="text-muted-foreground/60">
+            <kbd className="rounded border border-border px-1 py-0.5 text-xs">
+              Space
+            </kbd>{" "}
+            to play
+          </span>
         </p>
 
         <div className="flex items-center gap-2">

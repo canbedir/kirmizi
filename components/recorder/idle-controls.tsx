@@ -82,6 +82,12 @@ export function IdleControls({
         Nothing leaves your browser. The recording is built on your device and
         downloaded straight to you — no account, no upload.
       </p>
+
+      <p className="font-mono text-xs text-muted-foreground/70">
+        Press{" "}
+        <kbd className="rounded border border-border px-1.5 py-0.5">R</kbd> to
+        start recording
+      </p>
     </div>
   );
 }

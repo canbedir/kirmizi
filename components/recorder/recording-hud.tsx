@@ -67,8 +67,9 @@ export function RecordingHud({
         </Button>
       </div>
 
-      <p className="font-mono text-xs text-muted-foreground">
-        Long recordings grow in memory — keep an eye on the timer.
+      <p className="font-mono text-xs text-muted-foreground/70">
+        Press <kbd className="rounded border border-border px-1.5 py-0.5">S</kbd>{" "}
+        to stop
       </p>
     </div>
   );

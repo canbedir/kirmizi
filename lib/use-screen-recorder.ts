@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type RecorderStatus =
   | "idle"
   | "acquiring"
+  | "countdown"
   | "recording"
   | "stopped"
   | "error";
@@ -20,7 +21,11 @@ export interface Recording {
 export interface StartOptions {
   /** Capture the microphone and mix it with system audio. */
   mic?: boolean;
+  /** Seconds of 3·2·1 countdown after the screen is picked (default 3). */
+  countdown?: number;
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Prefer mp4 (H.264) where the browser can encode it, else fall back to webm.
 const MIME_CANDIDATES = [
@@ -43,6 +48,8 @@ export interface UseScreenRecorder {
   /** The finished recording, available once status is "stopped". */
   recording: Recording | null;
   isRecording: boolean;
+  /** Current countdown value while status is "countdown" (else 0). */
+  countdown: number;
   /** A microphone track was captured for this session. */
   micActive: boolean;
   /** The captured mic is currently muted. */
@@ -60,6 +67,9 @@ export function useScreenRecorder(): UseScreenRecorder {
   const [recording, setRecording] = useState<Recording | null>(null);
   const [micActive, setMicActive] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  // Set when the user aborts (stop / reset / native stop) during the countdown.
+  const startAbortedRef = useRef(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -99,6 +109,7 @@ export function useScreenRecorder(): UseScreenRecorder {
   }, []);
 
   const stop = useCallback(() => {
+    startAbortedRef.current = true; // no-op mid-recording, cancels the countdown
     clearTimer();
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
@@ -128,6 +139,7 @@ export function useScreenRecorder(): UseScreenRecorder {
       }
 
       setError(null);
+      startAbortedRef.current = false;
       setStatus("acquiring");
 
       let display: MediaStream;
@@ -232,6 +244,26 @@ export function useScreenRecorder(): UseScreenRecorder {
       // React to the browser's own "Stop sharing" bar.
       display.getVideoTracks()[0]?.addEventListener("ended", () => stop());
 
+      // 3·2·1 countdown after the screen is picked, before recording begins.
+      const seconds = Math.max(0, Math.floor(options?.countdown ?? 3));
+      if (seconds > 0) {
+        setStatus("countdown");
+        for (let n = seconds; n > 0; n--) {
+          if (startAbortedRef.current) break;
+          setCountdown(n);
+          await sleep(1000);
+        }
+      }
+      setCountdown(0);
+
+      // Bail out if the user cancelled (native stop / Escape) during the count.
+      if (startAbortedRef.current) {
+        cleanupCapture();
+        setMicActive(false);
+        setStatus("idle");
+        return;
+      }
+
       setElapsedMs(0);
       startedAtRef.current = Date.now();
       recorder.start();
@@ -244,12 +276,14 @@ export function useScreenRecorder(): UseScreenRecorder {
   );
 
   const reset = useCallback(() => {
+    startAbortedRef.current = true;
     clearTimer();
     cleanupCapture();
     revokeRecording();
     chunksRef.current = [];
     setRecording(null);
     setElapsedMs(0);
+    setCountdown(0);
     setError(null);
     setMicActive(false);
     setMicMuted(false);
@@ -271,6 +305,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     elapsedMs,
     recording,
     isRecording: status === "recording",
+    countdown,
     micActive,
     micMuted,
     toggleMicMuted,

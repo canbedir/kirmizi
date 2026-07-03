@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { useScreenRecorder } from "@/lib/use-screen-recorder";
 import { useMediaSupport } from "@/lib/use-media-support";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { IdleControls } from "@/components/recorder/idle-controls";
 import { RecordingHud } from "@/components/recorder/recording-hud";
 import { Preview } from "@/components/recorder/preview";
+import { Countdown } from "@/components/recorder/countdown";
 import { Unsupported } from "@/components/recorder/unsupported";
 
 export function RecorderShell() {
@@ -22,6 +23,7 @@ export function RecorderShell() {
     error,
     elapsedMs,
     recording,
+    countdown,
     micActive,
     micMuted,
     toggleMicMuted,
@@ -31,6 +33,40 @@ export function RecorderShell() {
   } = recorder;
 
   const blocked = support.checked && !support.supported;
+
+  const startRecording = useCallback(
+    () => start({ mic: micEnabled }),
+    [start, micEnabled],
+  );
+
+  // Keyboard shortcuts: R to record, S to stop, Esc to cancel the countdown.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (blocked) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (status === "idle" && key === "r") {
+        event.preventDefault();
+        startRecording();
+      } else if (status === "recording" && key === "s") {
+        event.preventDefault();
+        stop();
+      } else if (status === "countdown" && event.key === "Escape") {
+        event.preventDefault();
+        reset();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [blocked, status, startRecording, stop, reset]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -70,13 +106,15 @@ export function RecorderShell() {
           <Preview recording={recording} onReset={reset} />
         ) : (
           <IdleControls
-            onStart={() => start({ mic: micEnabled })}
+            onStart={startRecording}
             acquiring={status === "acquiring"}
             micEnabled={micEnabled}
             onMicChange={setMicEnabled}
           />
         )}
       </main>
+
+      {status === "countdown" && <Countdown value={countdown} />}
     </div>
   );
 }
