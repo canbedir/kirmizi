@@ -12,3 +12,9 @@ export const navLinks = [
   { label: "How it works", href: "/#how-it-works" },
   { label: "Features", href: "/#features" },
 ] as const;
+
+// Social / source links for the hero row. `icon` maps to a component in the
+// hero; add x / bluesky here once those handles exist.
+export const socialLinks = [
+  { label: "GitHub", href: siteConfig.githubUrl, icon: "github" },
+] as const;

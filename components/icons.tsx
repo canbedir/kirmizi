@@ -16,3 +16,21 @@ export function GithubIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** X (Twitter) mark. */
+export function XIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M18.9 1.9h3.5l-7.6 8.7 8.9 11.8h-7l-5.4-7.1-6.2 7.1H1.6l8.1-9.3L1.2 1.9h7.2l4.9 6.5 5.6-6.5Zm-1.2 18.2h1.9L6.4 3.8H4.3l13.4 16.3Z" />
+    </svg>
+  );
+}
+
+/** Bluesky butterfly mark. */
+export function BlueskyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M12 10.8c-.9-1.8-3.4-5.1-5.7-6.7C4.1 2.6 3.2 2.9 2.7 3.2 2 3.5 1.9 4.6 1.9 5.2c0 .7.4 5.5.6 6.3.7 2.7 3.6 3.6 6.2 3.3-3.9.6-7.3 2-2.8 7 4.9 5.1 6.7-1.1 7.7-4.2 1 3.1 2 9.1 7.5 4.2 4.2-4.2 1.2-6.4-2.7-7 2.7.3 5.5-.6 6.2-3.3.2-.8.6-5.6.6-6.3 0-.6-.1-1.7-.8-2C21.7 2.6 20.7 2.5 19 3.8c-2.3 1.6-4.8 4.9-5.7 6.7Z" />
+    </svg>
+  );
+}
