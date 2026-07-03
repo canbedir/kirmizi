@@ -6,9 +6,11 @@ import {
   Loader2,
   Pause,
   Play,
+  Redo2,
   RotateCcw,
   Scissors,
   Trash2,
+  Undo2,
   Volume2,
   VolumeX,
   ZoomIn,
@@ -68,7 +70,7 @@ export function Editor({
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const { duration, segments, selectedId, isEdited } = editor;
+  const { duration, segments, selectedId, isEdited, canUndo, canRedo } = editor;
   // At zoomFactor 1 the whole clip fits the timeline width; zoom scales up.
   const fitPxPerSec = duration > 0 && containerWidth > 0 ? containerWidth / duration : 10;
   const pxPerSec = fitPxPerSec * zoomFactor;
@@ -217,6 +219,8 @@ export function Editor({
     toggleMute: () => selected && editor.setMuted(selected.id, !selected.muted),
     zoomIn,
     zoomOut,
+    undo: editor.undo,
+    redo: editor.redo,
   });
   useEffect(() => {
     actionsRef.current = {
@@ -227,6 +231,8 @@ export function Editor({
         selected && editor.setMuted(selected.id, !selected.muted),
       zoomIn,
       zoomOut,
+      undo: editor.undo,
+      redo: editor.redo,
     };
   });
 
@@ -242,6 +248,21 @@ export function Editor({
         return;
       }
       const a = actionsRef.current;
+
+      // Undo / redo (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y; Cmd on macOS).
+      if (event.ctrlKey || event.metaKey) {
+        const key = event.key.toLowerCase();
+        if (key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) a.redo();
+          else a.undo();
+        } else if (key === "y") {
+          event.preventDefault();
+          a.redo();
+        }
+        return; // leave other Ctrl/Cmd combos (save, etc.) alone
+      }
+
       switch (event.key) {
         case " ":
           event.preventDefault();
@@ -359,6 +380,25 @@ export function Editor({
             </div>
 
             <div className="flex items-center gap-1.5">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={editor.undo}
+                disabled={!canUndo}
+                aria-label="Undo"
+              >
+                <Undo2 className="size-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={editor.redo}
+                disabled={!canRedo}
+                aria-label="Redo"
+              >
+                <Redo2 className="size-4" />
+              </Button>
+              <span className="mx-1 h-5 w-px bg-border" />
               <Button
                 size="icon"
                 variant="ghost"
@@ -500,7 +540,8 @@ export function Editor({
 
           <p className="text-center font-mono text-xs text-muted-foreground/70">
             <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Del</Kbd> delete ·{" "}
-            <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom
+            <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom · <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd>{" "}
+            undo
           </p>
         </>
       )}
