@@ -22,6 +22,9 @@ export function RecorderShell() {
     error,
     elapsedMs,
     recording,
+    micActive,
+    micMuted,
+    toggleMicMuted,
     start,
     stop,
     reset,
@@ -56,12 +59,18 @@ export function RecorderShell() {
             </Button>
           </div>
         ) : status === "recording" ? (
-          <RecordingHud elapsedMs={elapsedMs} onStop={stop} />
+          <RecordingHud
+            elapsedMs={elapsedMs}
+            onStop={stop}
+            micActive={micActive}
+            micMuted={micMuted}
+            onToggleMic={toggleMicMuted}
+          />
         ) : status === "stopped" && recording ? (
           <Preview recording={recording} onReset={reset} />
         ) : (
           <IdleControls
-            onStart={start}
+            onStart={() => start({ mic: micEnabled })}
             acquiring={status === "acquiring"}
             micEnabled={micEnabled}
             onMicChange={setMicEnabled}

@@ -1,15 +1,25 @@
 "use client";
 
-import { Square } from "lucide-react";
+import { Mic, MicOff, Square } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 
 interface RecordingHudProps {
   elapsedMs: number;
   onStop: () => void;
+  micActive: boolean;
+  micMuted: boolean;
+  onToggleMic: () => void;
 }
 
-export function RecordingHud({ elapsedMs, onStop }: RecordingHudProps) {
+export function RecordingHud({
+  elapsedMs,
+  onStop,
+  micActive,
+  micMuted,
+  onToggleMic,
+}: RecordingHudProps) {
   return (
     <div className="flex flex-col items-center gap-10 text-center">
       <div className="flex flex-col items-center gap-4">
@@ -26,14 +36,36 @@ export function RecordingHud({ elapsedMs, onStop }: RecordingHudProps) {
         </p>
       </div>
 
-      <Button
-        onClick={onStop}
-        size="lg"
-        className="h-12 gap-2 rounded-full bg-red px-7 text-base text-red-foreground hover:bg-red-hover"
-      >
-        <Square className="size-4 fill-current" />
-        Stop recording
-      </Button>
+      <div className="flex items-center gap-3">
+        {micActive && (
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onToggleMic}
+            aria-pressed={micMuted}
+            className={cn(
+              "h-12 gap-2 rounded-full px-5 text-base",
+              micMuted && "border-red/30 bg-red/10 text-red",
+            )}
+          >
+            {micMuted ? (
+              <MicOff className="size-4" />
+            ) : (
+              <Mic className="size-4" />
+            )}
+            {micMuted ? "Mic muted" : "Mic on"}
+          </Button>
+        )}
+
+        <Button
+          onClick={onStop}
+          size="lg"
+          className="h-12 gap-2 rounded-full bg-red px-7 text-base text-red-foreground hover:bg-red-hover"
+        >
+          <Square className="size-4 fill-current" />
+          Stop recording
+        </Button>
+      </div>
 
       <p className="font-mono text-xs text-muted-foreground">
         Long recordings grow in memory — keep an eye on the timer.

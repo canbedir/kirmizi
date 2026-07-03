@@ -17,6 +17,11 @@ export interface Recording {
   durationMs: number;
 }
 
+export interface StartOptions {
+  /** Capture the microphone and mix it with system audio. */
+  mic?: boolean;
+}
+
 // Prefer mp4 (H.264) where the browser can encode it, else fall back to webm.
 const MIME_CANDIDATES = [
   "video/mp4",
@@ -38,7 +43,12 @@ export interface UseScreenRecorder {
   /** The finished recording, available once status is "stopped". */
   recording: Recording | null;
   isRecording: boolean;
-  start: () => Promise<void>;
+  /** A microphone track was captured for this session. */
+  micActive: boolean;
+  /** The captured mic is currently muted. */
+  micMuted: boolean;
+  toggleMicMuted: () => void;
+  start: (options?: StartOptions) => Promise<void>;
   stop: () => void;
   reset: () => void;
 }
@@ -48,8 +58,13 @@ export function useScreenRecorder(): UseScreenRecorder {
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [recording, setRecording] = useState<Recording | null>(null);
+  const [micActive, setMicActive] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micTrackRef = useRef<MediaStreamTrack | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef(0);
@@ -64,9 +79,16 @@ export function useScreenRecorder(): UseScreenRecorder {
     }
   }, []);
 
-  const stopTracks = useCallback(() => {
+  const cleanupCapture = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+    micTrackRef.current = null;
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
   }, []);
 
   const revokeRecording = useCallback(() => {
@@ -80,111 +102,168 @@ export function useScreenRecorder(): UseScreenRecorder {
     clearTimer();
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
-      recorder.stop(); // onstop builds the blob and stops the tracks
+      recorder.stop(); // onstop builds the blob and cleans up capture
     } else {
-      stopTracks();
+      cleanupCapture();
     }
-  }, [clearTimer, stopTracks]);
+  }, [clearTimer, cleanupCapture]);
 
-  const start = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) {
-      setError("Screen capture isn't available in this browser.");
-      setStatus("error");
-      return;
-    }
+  const toggleMicMuted = useCallback(() => {
+    setMicMuted((prev) => {
+      const next = !prev;
+      if (micTrackRef.current) micTrackRef.current.enabled = !next;
+      return next;
+    });
+  }, []);
 
-    setError(null);
-    setStatus("acquiring");
-
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true, // system/tab audio when the browser + OS allow it
-      });
-    } catch (err) {
-      // Cancelling the native picker rejects — treat that as a quiet no-op.
+  const start = useCallback(
+    async (options?: StartOptions) => {
       if (
-        err instanceof DOMException &&
-        (err.name === "NotAllowedError" || err.name === "AbortError")
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices?.getDisplayMedia
       ) {
-        setStatus("idle");
+        setError("Screen capture isn't available in this browser.");
+        setStatus("error");
         return;
       }
-      setError(err instanceof Error ? err.message : "Couldn't start capture.");
-      setStatus("error");
-      return;
-    }
 
-    // Fresh session — drop any previous recording.
-    revokeRecording();
-    setRecording(null);
+      setError(null);
+      setStatus("acquiring");
 
-    streamRef.current = stream;
-    chunksRef.current = [];
+      let display: MediaStream;
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 30 },
+          audio: true, // system/tab audio when the browser + OS allow it
+        });
+      } catch (err) {
+        // Cancelling the native picker rejects — treat that as a quiet no-op.
+        if (
+          err instanceof DOMException &&
+          (err.name === "NotAllowedError" || err.name === "AbortError")
+        ) {
+          setStatus("idle");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Couldn't start capture.");
+        setStatus("error");
+        return;
+      }
 
-    const mimeType = pickMimeType();
-    let recorder: MediaRecorder;
-    try {
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    } catch {
-      recorder = new MediaRecorder(stream);
-    }
-    recorderRef.current = recorder;
+      // Optional microphone — never fail the whole recording if it's denied.
+      let mic: MediaStream | null = null;
+      if (options?.mic) {
+        try {
+          mic = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
+        } catch {
+          mic = null;
+        }
+      }
 
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
-    };
+      // Fresh session — drop any previous recording.
+      revokeRecording();
+      setRecording(null);
 
-    recorder.onstop = () => {
-      clearTimer();
-      const type = recorder.mimeType || mimeType || "video/webm";
-      const blob = new Blob(chunksRef.current, { type });
-      const url = URL.createObjectURL(blob);
-      const finished: Recording = {
-        url,
-        blob,
-        mimeType: type,
-        size: blob.size,
-        durationMs: Date.now() - startedAtRef.current,
+      streamRef.current = display;
+      micStreamRef.current = mic;
+      micTrackRef.current = mic?.getAudioTracks()[0] ?? null;
+      setMicActive(!!micTrackRef.current);
+      setMicMuted(false);
+
+      // Mix any audio sources (system + mic) into one destination via Web Audio.
+      const audioStreams = [display, mic].filter(
+        (s): s is MediaStream => !!s && s.getAudioTracks().length > 0,
+      );
+      let recordStream = display;
+      if (audioStreams.length > 0) {
+        const audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
+        const dest = audioCtx.createMediaStreamDestination();
+        for (const s of audioStreams) {
+          audioCtx
+            .createMediaStreamSource(new MediaStream(s.getAudioTracks()))
+            .connect(dest);
+        }
+        recordStream = new MediaStream([
+          ...display.getVideoTracks(),
+          ...dest.stream.getAudioTracks(),
+        ]);
+      }
+
+      chunksRef.current = [];
+      const mimeType = pickMimeType();
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(
+          recordStream,
+          mimeType ? { mimeType } : undefined,
+        );
+      } catch {
+        recorder = new MediaRecorder(recordStream);
+      }
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0)
+          chunksRef.current.push(event.data);
       };
-      recordingRef.current = finished;
-      setRecording(finished);
-      setStatus("stopped");
-      stopTracks();
-    };
 
-    // React to the browser's own "Stop sharing" bar.
-    stream.getVideoTracks()[0]?.addEventListener("ended", () => stop());
+      recorder.onstop = () => {
+        clearTimer();
+        const type = recorder.mimeType || mimeType || "video/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        const url = URL.createObjectURL(blob);
+        const finished: Recording = {
+          url,
+          blob,
+          mimeType: type,
+          size: blob.size,
+          durationMs: Date.now() - startedAtRef.current,
+        };
+        recordingRef.current = finished;
+        setRecording(finished);
+        setStatus("stopped");
+        setMicActive(false);
+        cleanupCapture();
+      };
 
-    setElapsedMs(0);
-    startedAtRef.current = Date.now();
-    recorder.start();
-    setStatus("recording");
-    timerRef.current = window.setInterval(() => {
-      setElapsedMs(Date.now() - startedAtRef.current);
-    }, 200);
-  }, [clearTimer, revokeRecording, stop, stopTracks]);
+      // React to the browser's own "Stop sharing" bar.
+      display.getVideoTracks()[0]?.addEventListener("ended", () => stop());
+
+      setElapsedMs(0);
+      startedAtRef.current = Date.now();
+      recorder.start();
+      setStatus("recording");
+      timerRef.current = window.setInterval(() => {
+        setElapsedMs(Date.now() - startedAtRef.current);
+      }, 200);
+    },
+    [clearTimer, cleanupCapture, revokeRecording, stop],
+  );
 
   const reset = useCallback(() => {
     clearTimer();
-    stopTracks();
+    cleanupCapture();
     revokeRecording();
     chunksRef.current = [];
     setRecording(null);
     setElapsedMs(0);
     setError(null);
+    setMicActive(false);
+    setMicMuted(false);
     setStatus("idle");
-  }, [clearTimer, revokeRecording, stopTracks]);
+  }, [clearTimer, cleanupCapture, revokeRecording]);
 
-  // Tear down on unmount: stop the stream and free the object URL.
+  // Tear down on unmount: stop the streams and free the object URL.
   useEffect(() => {
     return () => {
       clearTimer();
-      stopTracks();
+      cleanupCapture();
       revokeRecording();
     };
-  }, [clearTimer, stopTracks, revokeRecording]);
+  }, [clearTimer, cleanupCapture, revokeRecording]);
 
   return {
     status,
@@ -192,6 +271,9 @@ export function useScreenRecorder(): UseScreenRecorder {
     elapsedMs,
     recording,
     isRecording: status === "recording",
+    micActive,
+    micMuted,
+    toggleMicMuted,
     start,
     stop,
     reset,
