@@ -41,7 +41,9 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${bricolage.variable} ${GeistMono.variable} ${junicode.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla adds
+          cz-shortcut-listen) mutate <body> before hydration. */}
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
