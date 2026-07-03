@@ -9,6 +9,8 @@ interface IdleControlsProps {
   acquiring: boolean;
   micEnabled: boolean;
   onMicChange: (enabled: boolean) => void;
+  cameraEnabled: boolean;
+  onCameraChange: (enabled: boolean) => void;
 }
 
 export function IdleControls({
@@ -16,6 +18,8 @@ export function IdleControls({
   acquiring,
   micEnabled,
   onMicChange,
+  cameraEnabled,
+  onCameraChange,
 }: IdleControlsProps) {
   return (
     <div className="flex flex-col items-center gap-10 text-center">
@@ -71,11 +75,23 @@ export function IdleControls({
           <span className="font-mono text-xs opacity-70">best-effort</span>
         </span>
 
-        <span className="inline-flex items-center gap-2 rounded-full border border-dashed border-border px-3.5 py-2 text-sm text-muted-foreground/70">
+        <label
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-2.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
+            cameraEnabled
+              ? "border-red/30 bg-red/10 text-foreground"
+              : "border-border text-muted-foreground",
+          )}
+        >
           <Camera className="size-4" />
           Camera
-          <span className="font-mono text-xs opacity-70">soon</span>
-        </span>
+          <Switch
+            checked={cameraEnabled}
+            onCheckedChange={onCameraChange}
+            disabled={acquiring}
+            aria-label="Record webcam bubble"
+          />
+        </label>
       </div>
 
       <p className="max-w-sm text-sm text-muted-foreground">

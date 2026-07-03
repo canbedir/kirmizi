@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { composeCameraPip, type CameraComposite } from "@/lib/camera-composite";
 
 export type RecorderStatus =
   | "idle"
@@ -21,6 +22,8 @@ export interface Recording {
 export interface StartOptions {
   /** Capture the microphone and mix it with system audio. */
   mic?: boolean;
+  /** Composite a webcam bubble into the corner of the recording. */
+  camera?: boolean;
   /** Seconds of 3·2·1 countdown after the screen is picked (default 3). */
   countdown?: number;
 }
@@ -74,6 +77,8 @@ export function useScreenRecorder(): UseScreenRecorder {
   const streamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micTrackRef = useRef<MediaStreamTrack | null>(null);
+  const camStreamRef = useRef<MediaStream | null>(null);
+  const compositeRef = useRef<CameraComposite | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -90,11 +95,15 @@ export function useScreenRecorder(): UseScreenRecorder {
   }, []);
 
   const cleanupCapture = useCallback(() => {
+    compositeRef.current?.stop();
+    compositeRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
     micStreamRef.current = null;
     micTrackRef.current = null;
+    camStreamRef.current?.getTracks().forEach((track) => track.stop());
+    camStreamRef.current = null;
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
@@ -179,6 +188,18 @@ export function useScreenRecorder(): UseScreenRecorder {
         }
       }
 
+      // Optional webcam for the picture-in-picture bubble.
+      let cam: MediaStream | null = null;
+      if (options?.camera) {
+        try {
+          cam = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720 },
+          });
+        } catch {
+          cam = null;
+        }
+      }
+
       // Fresh session — drop any previous recording.
       revokeRecording();
       setRecording(null);
@@ -186,15 +207,16 @@ export function useScreenRecorder(): UseScreenRecorder {
       streamRef.current = display;
       micStreamRef.current = mic;
       micTrackRef.current = mic?.getAudioTracks()[0] ?? null;
+      camStreamRef.current = cam;
       setMicActive(!!micTrackRef.current);
       setMicMuted(false);
 
-      // Only run the Web Audio mixer when we actually need to combine two
-      // sources (mic + system). A single source is recorded straight through,
-      // which keeps system audio at full quality (no resample round-trip).
+      // Audio: only run the Web Audio mixer when we must combine two sources
+      // (mic + system). A single source is passed straight through, keeping
+      // system audio at full quality (no resample round-trip).
       const displayHasAudio = display.getAudioTracks().length > 0;
       const micHasAudio = !!mic && mic.getAudioTracks().length > 0;
-      let recordStream: MediaStream;
+      let audioTracks: MediaStreamTrack[] = [];
       if (displayHasAudio && micHasAudio) {
         const audioCtx = new AudioContext();
         audioCtxRef.current = audioCtx;
@@ -204,18 +226,27 @@ export function useScreenRecorder(): UseScreenRecorder {
             .createMediaStreamSource(new MediaStream(s.getAudioTracks()))
             .connect(dest);
         }
-        recordStream = new MediaStream([
-          ...display.getVideoTracks(),
-          ...dest.stream.getAudioTracks(),
-        ]);
+        audioTracks = dest.stream.getAudioTracks();
       } else if (micHasAudio) {
-        recordStream = new MediaStream([
-          ...display.getVideoTracks(),
-          ...(mic as MediaStream).getAudioTracks(),
-        ]);
-      } else {
-        recordStream = display; // video + optional system audio, untouched
+        audioTracks = (mic as MediaStream).getAudioTracks();
+      } else if (displayHasAudio) {
+        audioTracks = display.getAudioTracks();
       }
+
+      // Video: composite the webcam bubble when a camera was granted, else use
+      // the screen track directly.
+      let videoTracks = display.getVideoTracks();
+      if (cam) {
+        try {
+          const composite = await composeCameraPip(display, cam);
+          compositeRef.current = composite;
+          videoTracks = composite.stream.getVideoTracks();
+        } catch {
+          videoTracks = display.getVideoTracks();
+        }
+      }
+
+      const recordStream = new MediaStream([...videoTracks, ...audioTracks]);
 
       chunksRef.current = [];
       const mimeType = pickMimeType();

@@ -17,6 +17,7 @@ export function RecorderShell() {
   const support = useMediaSupport();
   const recorder = useScreenRecorder();
   const [micEnabled, setMicEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
 
   const {
     status,
@@ -35,8 +36,8 @@ export function RecorderShell() {
   const blocked = support.checked && !support.supported;
 
   const startRecording = useCallback(
-    () => start({ mic: micEnabled }),
-    [start, micEnabled],
+    () => start({ mic: micEnabled, camera: cameraEnabled }),
+    [start, micEnabled, cameraEnabled],
   );
 
   // Keyboard shortcuts: R to record, S to stop, Esc to cancel the countdown.
@@ -110,6 +111,8 @@ export function RecorderShell() {
             acquiring={status === "acquiring"}
             micEnabled={micEnabled}
             onMicChange={setMicEnabled}
+            cameraEnabled={cameraEnabled}
+            onCameraChange={setCameraEnabled}
           />
         )}
       </main>
