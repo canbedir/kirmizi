@@ -33,7 +33,7 @@ export async function generateThumbnails(
     video.onerror = () => reject(new Error("thumbnail load failed"));
   });
 
-  const width = 96;
+  const width = 240;
   const ratio =
     video.videoWidth && video.videoHeight
       ? video.videoHeight / video.videoWidth
@@ -52,7 +52,7 @@ export async function generateThumbnails(
     try {
       await seek(video, Math.min(time, Math.max(0, duration - 0.05)));
       ctx.drawImage(video, 0, 0, width, height);
-      frames.push(canvas.toDataURL("image/jpeg", 0.55));
+      frames.push(canvas.toDataURL("image/jpeg", 0.72));
     } catch {
       frames.push("");
     }

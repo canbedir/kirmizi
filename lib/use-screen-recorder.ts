@@ -146,7 +146,12 @@ export function useScreenRecorder(): UseScreenRecorder {
       try {
         display = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: 30 },
-          audio: true, // system/tab audio when the browser + OS allow it
+          // Disable speech-oriented processing — it mangles music/system audio.
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
         });
       } catch (err) {
         // Cancelling the native picker rejects — treat that as a quiet no-op.
@@ -184,16 +189,17 @@ export function useScreenRecorder(): UseScreenRecorder {
       setMicActive(!!micTrackRef.current);
       setMicMuted(false);
 
-      // Mix any audio sources (system + mic) into one destination via Web Audio.
-      const audioStreams = [display, mic].filter(
-        (s): s is MediaStream => !!s && s.getAudioTracks().length > 0,
-      );
-      let recordStream = display;
-      if (audioStreams.length > 0) {
+      // Only run the Web Audio mixer when we actually need to combine two
+      // sources (mic + system). A single source is recorded straight through,
+      // which keeps system audio at full quality (no resample round-trip).
+      const displayHasAudio = display.getAudioTracks().length > 0;
+      const micHasAudio = !!mic && mic.getAudioTracks().length > 0;
+      let recordStream: MediaStream;
+      if (displayHasAudio && micHasAudio) {
         const audioCtx = new AudioContext();
         audioCtxRef.current = audioCtx;
         const dest = audioCtx.createMediaStreamDestination();
-        for (const s of audioStreams) {
+        for (const s of [display, mic as MediaStream]) {
           audioCtx
             .createMediaStreamSource(new MediaStream(s.getAudioTracks()))
             .connect(dest);
@@ -202,16 +208,22 @@ export function useScreenRecorder(): UseScreenRecorder {
           ...display.getVideoTracks(),
           ...dest.stream.getAudioTracks(),
         ]);
+      } else if (micHasAudio) {
+        recordStream = new MediaStream([
+          ...display.getVideoTracks(),
+          ...(mic as MediaStream).getAudioTracks(),
+        ]);
+      } else {
+        recordStream = display; // video + optional system audio, untouched
       }
 
       chunksRef.current = [];
       const mimeType = pickMimeType();
       let recorder: MediaRecorder;
       try {
-        recorder = new MediaRecorder(
-          recordStream,
-          mimeType ? { mimeType } : undefined,
-        );
+        const options: MediaRecorderOptions = { audioBitsPerSecond: 192_000 };
+        if (mimeType) options.mimeType = mimeType;
+        recorder = new MediaRecorder(recordStream, options);
       } catch {
         recorder = new MediaRecorder(recordStream);
       }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { MicOff } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Segment } from "@/lib/use-video-editor";
@@ -44,8 +44,20 @@ export function Timeline({
   onSelect,
 }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const width = Math.max(1, duration * pxPerSec);
+
+  // Keep the playhead within view while it moves (e.g. during playback).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const x = playhead * pxPerSec;
+    const margin = 48;
+    if (x < el.scrollLeft + margin || x > el.scrollLeft + el.clientWidth - margin) {
+      el.scrollLeft = x - el.clientWidth / 2;
+    }
+  }, [playhead, pxPerSec]);
 
   function timeFromEvent(clientX: number): number {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -76,7 +88,10 @@ export function Timeline({
   const gaps = gapsOf(segments, duration);
 
   return (
-    <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-border bg-surface">
+    <div
+      ref={scrollRef}
+      className="overflow-x-auto overflow-y-hidden rounded-lg border border-border bg-surface"
+    >
       <div
         ref={trackRef}
         onPointerDown={handlePointerDown}
@@ -85,7 +100,8 @@ export function Timeline({
         className="relative h-20 cursor-text touch-none select-none"
         style={{ width }}
       >
-        {/* Filmstrip */}
+        {/* Filmstrip — min-w-0 lets each frame shrink below its intrinsic
+            width so the strip scales with the track at every zoom level. */}
         <div className="pointer-events-none absolute inset-0 flex">
           {thumbnails.length > 0
             ? thumbnails.map((src, i) =>
@@ -96,10 +112,10 @@ export function Timeline({
                     src={src}
                     alt=""
                     draggable={false}
-                    className="h-full flex-1 object-cover opacity-70"
+                    className="h-full min-w-0 flex-1 object-cover opacity-70"
                   />
                 ) : (
-                  <div key={i} className="h-full flex-1 bg-background/40" />
+                  <div key={i} className="h-full min-w-0 flex-1 bg-background/40" />
                 ),
               )
             : null}
@@ -157,7 +173,7 @@ export function Timeline({
           className="pointer-events-none absolute inset-y-0 z-10 w-px bg-red"
           style={{ left: Math.min(width - 1, playhead * pxPerSec) }}
         >
-          <span className="absolute -top-0 -left-[5px] size-[11px] rounded-full border-2 border-background bg-red" />
+          <span className="absolute top-0 -left-1.25 size-2.75 rounded-full border-2 border-background bg-red" />
         </div>
       </div>
     </div>

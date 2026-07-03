@@ -56,19 +56,31 @@ export function Editor({
 }) {
   const editor = useVideoEditor();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const measuredRef = useRef(false);
 
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
-  const [baseZoom, setBaseZoom] = useState(10);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const { duration, segments, selectedId, isEdited } = editor;
-  const pxPerSec = baseZoom * zoomFactor;
+  // At zoomFactor 1 the whole clip fits the timeline width; zoom scales up.
+  const fitPxPerSec = duration > 0 && containerWidth > 0 ? containerWidth / duration : 10;
+  const pxPerSec = fitPxPerSec * zoomFactor;
+
+  // Track the available timeline width so the default view fits the clip.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setContainerWidth(el.clientWidth));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const selected = segments.find((s) => s.id === selectedId) ?? null;
   const format = fileExtension(recording.mimeType).toUpperCase();
   const canSplit = segments.some(
@@ -90,7 +102,7 @@ export function Editor({
     if (measuredRef.current || !Number.isFinite(value) || value <= 0) return;
     measuredRef.current = true;
     editor.init(value);
-    setBaseZoom(Math.min(60, Math.max(6, 700 / value)));
+    setZoomFactor(1);
     const video = videoRef.current;
     if (video) video.currentTime = 0;
     setPlayhead(0);
@@ -116,12 +128,19 @@ export function Editor({
   function handleTimeUpdate() {
     const video = videoRef.current;
     if (!video) return;
-    const t = video.currentTime;
+    const t = Math.min(video.currentTime, editor.duration);
     setPlayhead(t);
     if (!playingRef.current) return;
 
     const segs = editor.segments;
     if (!segs.length) return;
+    const stopAtEnd = () => {
+      const end = segs[segs.length - 1].end;
+      video.pause();
+      video.currentTime = end;
+      setPlayhead(end);
+      setPlayingBoth(false);
+    };
     const idx = segs.findIndex((s) => t >= s.start - 0.02 && t < s.end - 0.02);
     if (idx === -1) {
       const next = segs.find((s) => s.start >= t - 0.02);
@@ -129,8 +148,7 @@ export function Editor({
         video.currentTime = next.start;
         applySegment(video, next);
       } else {
-        video.pause();
-        setPlayingBoth(false);
+        stopAtEnd();
       }
       return;
     }
@@ -140,8 +158,7 @@ export function Editor({
         video.currentTime = next.start;
         applySegment(video, next);
       } else {
-        video.pause();
-        setPlayingBoth(false);
+        stopAtEnd();
       }
     }
   }
@@ -294,7 +311,7 @@ export function Editor({
   const ready = duration > 0;
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-5">
+    <div ref={containerRef} className="flex w-full max-w-3xl flex-col gap-5">
       <div className="relative">
         <video
           ref={videoRef}
@@ -304,6 +321,10 @@ export function Editor({
           onLoadedMetadata={handleLoadedMetadata}
           onDurationChange={handleDurationChange}
           onTimeUpdate={handleTimeUpdate}
+          onEnded={() => {
+            setPlayingBoth(false);
+            if (measuredRef.current) setPlayhead(editor.duration);
+          }}
           onClick={togglePlay}
           className="w-full cursor-pointer rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
         />
@@ -333,7 +354,7 @@ export function Editor({
               </Button>
               <span className="font-mono text-sm text-muted-foreground">
                 {formatDuration(playhead * 1000)}
-                <span className="opacity-50"> / {formatDuration(editor.editedDuration * 1000)}</span>
+                <span className="opacity-50"> / {formatDuration(duration * 1000)}</span>
               </span>
             </div>
 
@@ -440,7 +461,9 @@ export function Editor({
               {isEdited && (
                 <>
                   <span aria-hidden>·</span>
-                  <span className="text-red">edited</span>
+                  <span className="text-red">
+                    clip {formatDuration(editor.editedDuration * 1000)}
+                  </span>
                 </>
               )}
             </p>
