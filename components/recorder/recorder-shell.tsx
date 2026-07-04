@@ -24,6 +24,7 @@ export function RecorderShell() {
     error,
     elapsedMs,
     recording,
+    previewStream,
     countdown,
     micActive,
     micMuted,
@@ -105,6 +106,7 @@ export function RecorderShell() {
             micActive={micActive}
             micMuted={micMuted}
             onToggleMic={toggleMicMuted}
+            previewStream={previewStream}
           />
         ) : status === "stopped" && recording ? (
           <Editor recording={recording} onReset={reset} />

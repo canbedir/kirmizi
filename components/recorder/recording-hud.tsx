@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Mic, MicOff, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
@@ -11,6 +12,7 @@ interface RecordingHudProps {
   micActive: boolean;
   micMuted: boolean;
   onToggleMic: () => void;
+  previewStream: MediaStream | null;
 }
 
 export function RecordingHud({
@@ -19,21 +21,47 @@ export function RecordingHud({
   micActive,
   micMuted,
   onToggleMic,
+  previewStream,
 }: RecordingHudProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Attach the live capture stream to the preview element.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = previewStream;
+    if (previewStream) video.play().catch(() => {});
+  }, [previewStream]);
+
   return (
-    <div className="flex flex-col items-center gap-10 text-center">
-      <div className="flex flex-col items-center gap-4">
-        <span className="inline-flex items-center gap-2.5 text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          <span className="record-dot record-dot--live size-2.5" aria-hidden />
-          Recording
-        </span>
-        <p
-          className="font-mono text-7xl tabular-nums tracking-tight sm:text-8xl"
+    <div className="flex w-full max-w-3xl flex-col items-center gap-6">
+      <div className="relative w-full">
+        {previewStream ? (
+          <video
+            ref={videoRef}
+            muted
+            autoPlay
+            playsInline
+            className="w-full rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
+          />
+        ) : (
+          <div className="grid aspect-video w-full place-items-center rounded-xl border border-border bg-black">
+            <span className="font-mono text-6xl tabular-nums">
+              {formatDuration(elapsedMs)}
+            </span>
+          </div>
+        )}
+
+        {/* Live timer badge */}
+        <div
+          className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 backdrop-blur-md"
           aria-live="polite"
-          aria-label="Elapsed time"
         >
-          {formatDuration(elapsedMs)}
-        </p>
+          <span className="record-dot record-dot--live size-2.5" aria-hidden />
+          <span className="font-mono text-sm tabular-nums">
+            {formatDuration(elapsedMs)}
+          </span>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

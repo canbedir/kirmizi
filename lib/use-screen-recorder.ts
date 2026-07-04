@@ -51,6 +51,8 @@ export interface UseScreenRecorder {
   /** The finished recording, available once status is "stopped". */
   recording: Recording | null;
   isRecording: boolean;
+  /** The stream being recorded (video + mixed audio), for a live preview. */
+  previewStream: MediaStream | null;
   /** Current countdown value while status is "countdown" (else 0). */
   countdown: number;
   /** A microphone track was captured for this session. */
@@ -70,6 +72,7 @@ export function useScreenRecorder(): UseScreenRecorder {
   const [recording, setRecording] = useState<Recording | null>(null);
   const [micActive, setMicActive] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [countdown, setCountdown] = useState(0);
   // Set when the user aborts (stop / reset / native stop) during the countdown.
   const startAbortedRef = useRef(false);
@@ -281,6 +284,7 @@ export function useScreenRecorder(): UseScreenRecorder {
         setRecording(finished);
         setStatus("stopped");
         setMicActive(false);
+        setPreviewStream(null);
         cleanupCapture();
       };
 
@@ -309,6 +313,7 @@ export function useScreenRecorder(): UseScreenRecorder {
 
       setElapsedMs(0);
       startedAtRef.current = Date.now();
+      setPreviewStream(recordStream);
       recorder.start();
       setStatus("recording");
       timerRef.current = window.setInterval(() => {
@@ -330,6 +335,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     setError(null);
     setMicActive(false);
     setMicMuted(false);
+    setPreviewStream(null);
     setStatus("idle");
   }, [clearTimer, cleanupCapture, revokeRecording]);
 
@@ -348,6 +354,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     elapsedMs,
     recording,
     isRecording: status === "recording",
+    previewStream,
     countdown,
     micActive,
     micMuted,
