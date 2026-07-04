@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Camera, Mic, Volume2 } from "lucide-react";
+import { Camera, Mic, SlidersHorizontal, Volume2 } from "lucide-react";
 import { formatDuration } from "@/lib/format";
 
 type PhaseKey = "landing" | "idle" | "countdown" | "recording";
@@ -10,7 +10,7 @@ type PhaseKey = "landing" | "idle" | "countdown" | "recording";
 const PHASES: { key: PhaseKey; duration: number }[] = [
   { key: "landing", duration: 3000 },
   { key: "idle", duration: 3000 },
-  { key: "countdown", duration: 1800 },
+  { key: "countdown", duration: 3000 },
   { key: "recording", duration: 3200 },
 ];
 
@@ -76,8 +76,8 @@ export function ProductDemo() {
   // Countdown ticks (initial value is set in the phase loop to avoid a flash).
   useEffect(() => {
     if (phase !== "countdown") return;
-    const t2 = setTimeout(() => setCount(2), 560);
-    const t1 = setTimeout(() => setCount(1), 1120);
+    const t2 = setTimeout(() => setCount(2), 1000);
+    const t1 = setTimeout(() => setCount(1), 2000);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -109,7 +109,7 @@ export function ProductDemo() {
       aria-hidden
       className="@container relative aspect-[16/10] w-full overflow-hidden bg-background"
     >
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         <motion.div key={phase} className="absolute inset-0" {...sceneTransition}>
           {phase === "landing" && <LandingScene />}
           {phase === "idle" && <IdleScene />}
@@ -187,10 +187,21 @@ function IdleScene() {
       <p className="absolute inset-x-0 top-[46%] text-center font-bold text-[3.6cqw]">
         Start recording
       </p>
-      <div className="absolute inset-x-0 top-[62%] flex justify-center gap-[1.4cqw]">
+      <div className="absolute inset-x-0 top-[60%] flex justify-center gap-[1.4cqw]">
         <Pill icon={<Mic className="size-[1.8cqw]" />} label="Mic" active />
         <Pill icon={<Volume2 className="size-[1.8cqw]" />} label="System" />
-        <Pill icon={<Camera className="size-[1.8cqw]" />} label="Camera" />
+        <Pill
+          icon={<Camera className="size-[1.8cqw]" />}
+          label="Camera"
+          active
+          trailing={<SlidersHorizontal className="size-[1.6cqw] opacity-70" />}
+        />
+      </div>
+      <div className="absolute inset-x-0 top-[78%] flex justify-center">
+        <span className="inline-flex items-center gap-[0.8cqw] rounded-full border border-border px-[1.8cqw] py-[0.7cqw] text-[1.7cqw] text-muted-foreground">
+          <SlidersHorizontal className="size-[1.5cqw]" />
+          1080p · 60fps
+        </span>
       </div>
     </div>
   );
@@ -200,10 +211,12 @@ function Pill({
   icon,
   label,
   active,
+  trailing,
 }: {
   icon: React.ReactNode;
   label: string;
   active?: boolean;
+  trailing?: React.ReactNode;
 }) {
   return (
     <span
@@ -216,6 +229,7 @@ function Pill({
     >
       {icon}
       {label}
+      {trailing}
     </span>
   );
 }
@@ -241,17 +255,33 @@ function CountdownScene({ value }: { value: number }) {
 
 function RecordingScene({ seconds }: { seconds: number }) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-[3cqw]">
-      <span className="inline-flex items-center gap-[1.2cqw] text-[2cqw] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-        <span className="record-dot record-dot--live size-[1.5cqw]" aria-hidden />
-        Recording
-      </span>
-      <span className="font-mono text-[11cqw] leading-none tabular-nums">
-        {formatDuration(seconds * 1000)}
-      </span>
-      <span className="rounded-full bg-red px-[3.2cqw] py-[1.4cqw] text-[2.2cqw] font-bold text-red-foreground">
-        Stop
-      </span>
+    <div className="absolute inset-0 flex flex-col justify-center gap-[3cqw] p-[5cqw]">
+      {/* Live preview of the screen being recorded */}
+      <div className="relative w-full grow overflow-hidden rounded-[1.5cqw] border border-border bg-linear-to-br from-surface to-background">
+        <div className="absolute inset-0 flex gap-[2.4cqw] p-[3.4cqw]">
+          <div className="w-[22%] rounded-[1cqw] bg-muted-foreground/10" />
+          <div className="flex flex-1 flex-col justify-center gap-[1.8cqw]">
+            <span className="h-[1.3cqw] w-2/3 rounded-full bg-muted-foreground/20" />
+            <span className="h-[1.3cqw] w-1/2 rounded-full bg-muted-foreground/20" />
+            <span className="h-[1.3cqw] w-3/4 rounded-full bg-muted-foreground/15" />
+            <span className="h-[1.3cqw] w-1/3 rounded-full bg-red/40" />
+          </div>
+        </div>
+
+        {/* Live timer badge */}
+        <div className="absolute left-[4%] top-[8%] inline-flex items-center gap-[1cqw] rounded-full border border-border bg-background/70 px-[1.6cqw] py-[0.8cqw] backdrop-blur-md">
+          <span className="record-dot record-dot--live size-[1.4cqw]" aria-hidden />
+          <span className="font-mono text-[1.9cqw] tabular-nums">
+            {formatDuration(seconds * 1000)}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex justify-center">
+        <span className="rounded-full bg-red px-[3.2cqw] py-[1.4cqw] text-[2.2cqw] font-bold text-red-foreground">
+          Stop recording
+        </span>
+      </div>
     </div>
   );
 }
