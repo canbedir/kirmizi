@@ -87,8 +87,14 @@ export async function composeCameraPip(
 
   const pathBox = () => {
     ctx.beginPath();
-    if (layout.shape === "circle") ctx.arc(cx, cy, half, 0, Math.PI * 2);
-    else ctx.roundRect(cx - half, cy - half, diameter, diameter, radius);
+    if (layout.shape === "circle") {
+      ctx.arc(cx, cy, half, 0, Math.PI * 2);
+    } else if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(cx - half, cy - half, diameter, diameter, radius);
+    } else {
+      // Safari < 16.4 lacks roundRect — fall back to a sharp square.
+      ctx.rect(cx - half, cy - half, diameter, diameter);
+    }
   };
 
   const draw = () => {

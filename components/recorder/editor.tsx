@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   Loader2,
@@ -69,6 +69,7 @@ export function Editor({
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const exportSupported = useMemo(() => canExportVideo(), []);
 
   const { duration, segments, selectedId, isEdited, canUndo, canRedo } = editor;
   // At zoomFactor 1 the whole clip fits the timeline width; zoom scales up.
@@ -537,6 +538,13 @@ export function Editor({
               </Button>
             </div>
           </div>
+
+          {!exportSupported && (
+            <p className="text-center text-xs text-muted-foreground">
+              Editing export isn&apos;t supported in this browser — you&apos;ll
+              get the full recording. Try Chrome, Edge, or Firefox.
+            </p>
+          )}
 
           <p className="text-center font-mono text-xs text-muted-foreground/70">
             <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Del</Kbd> delete ·{" "}

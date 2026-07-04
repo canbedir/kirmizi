@@ -181,39 +181,54 @@ export function useScreenRecorder(): UseScreenRecorder {
         videoConstraints.height = { max: cap.h };
       }
 
-      const displayOptions: DisplayMediaStreamOptions = {
-        video: videoConstraints,
-        // Disable speech-oriented processing — it mangles music/system audio.
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
+      const isCancel = (err: unknown) =>
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "AbortError");
+
+      const acquire = (withAudio: boolean) => {
+        const opts: DisplayMediaStreamOptions = { video: videoConstraints };
+        if (withAudio) {
+          // Disable speech processing — it mangles music/system audio.
+          opts.audio = {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          };
+        }
+        // Chromium-only picker hints (ignored elsewhere): offer system audio,
+        // allow surface switching, and drop our own tab (no infinity-mirror).
+        Object.assign(opts, {
+          systemAudio: "include",
+          surfaceSwitching: "include",
+          selfBrowserSurface: "exclude",
+        });
+        return navigator.mediaDevices.getDisplayMedia(opts);
       };
-      // Chromium-only hints that refine the *native* picker (it can't be
-      // replaced): offer system audio, allow switching the shared surface
-      // mid-recording, and drop our own tab (avoids the infinity-mirror).
-      Object.assign(displayOptions, {
-        systemAudio: "include",
-        surfaceSwitching: "include",
-        selfBrowserSurface: "exclude",
-      });
 
       let display: MediaStream;
       try {
-        display = await navigator.mediaDevices.getDisplayMedia(displayOptions);
+        display = await acquire(true);
       } catch (err) {
         // Cancelling the native picker rejects — treat that as a quiet no-op.
-        if (
-          err instanceof DOMException &&
-          (err.name === "NotAllowedError" || err.name === "AbortError")
-        ) {
+        if (isCancel(err)) {
           setStatus("idle");
           return;
         }
-        setError(err instanceof Error ? err.message : "Couldn't start capture.");
-        setStatus("error");
-        return;
+        // Some browsers (notably Safari) reject a display-audio request —
+        // retry video-only rather than failing the whole recording.
+        try {
+          display = await acquire(false);
+        } catch (err2) {
+          if (isCancel(err2)) {
+            setStatus("idle");
+            return;
+          }
+          setError(
+            err2 instanceof Error ? err2.message : "Couldn't start capture.",
+          );
+          setStatus("error");
+          return;
+        }
       }
 
       // Optional microphone — never fail the whole recording if it's denied.
@@ -258,7 +273,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       const micHasAudio = !!mic && mic.getAudioTracks().length > 0;
       let audioTracks: MediaStreamTrack[] = [];
       if (displayHasAudio && micHasAudio) {
-        const audioCtx = new AudioContext();
+        const AudioCtx: typeof AudioContext =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
+        const audioCtx = new AudioCtx();
         audioCtxRef.current = audioCtx;
         const dest = audioCtx.createMediaStreamDestination();
         for (const s of [display, mic as MediaStream]) {
