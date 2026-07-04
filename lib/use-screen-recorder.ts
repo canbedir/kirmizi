@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { composeCameraPip, type CameraComposite } from "@/lib/camera-composite";
+import {
+  composeCameraPip,
+  type CameraComposite,
+  type CameraLayout,
+} from "@/lib/camera-composite";
 
 export type RecorderStatus =
   | "idle"
@@ -19,14 +23,28 @@ export interface Recording {
   durationMs: number;
 }
 
+export type Resolution = "auto" | "1080p" | "720p";
+
 export interface StartOptions {
   /** Capture the microphone and mix it with system audio. */
   mic?: boolean;
   /** Composite a webcam bubble into the corner of the recording. */
   camera?: boolean;
+  /** How the webcam bubble is placed and shaped. */
+  cameraLayout?: CameraLayout;
+  /** Cap the capture resolution ("auto" = native). */
+  resolution?: Resolution;
+  /** Target frame rate. */
+  fps?: number;
   /** Seconds of 3·2·1 countdown after the screen is picked (default 3). */
   countdown?: number;
 }
+
+const RESOLUTION_CAPS: Record<Resolution, { w: number; h: number } | null> = {
+  auto: null,
+  "1080p": { w: 1920, h: 1080 },
+  "720p": { w: 1280, h: 720 },
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -154,10 +172,19 @@ export function useScreenRecorder(): UseScreenRecorder {
       startAbortedRef.current = false;
       setStatus("acquiring");
 
+      const cap = RESOLUTION_CAPS[options?.resolution ?? "auto"];
+      const videoConstraints: MediaTrackConstraints = {
+        frameRate: { ideal: options?.fps ?? 30 },
+      };
+      if (cap) {
+        videoConstraints.width = { max: cap.w };
+        videoConstraints.height = { max: cap.h };
+      }
+
       let display: MediaStream;
       try {
         display = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: 30 },
+          video: videoConstraints,
           // Disable speech-oriented processing — it mangles music/system audio.
           audio: {
             echoCancellation: false,
@@ -241,7 +268,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       let videoTracks = display.getVideoTracks();
       if (cam) {
         try {
-          const composite = await composeCameraPip(display, cam);
+          const composite = await composeCameraPip(
+            display,
+            cam,
+            options?.cameraLayout,
+          );
           compositeRef.current = composite;
           videoTracks = composite.stream.getVideoTracks();
         } catch {

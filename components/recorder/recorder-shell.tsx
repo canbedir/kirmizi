@@ -8,6 +8,10 @@ import { Wordmark } from "@/components/wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { IdleControls } from "@/components/recorder/idle-controls";
+import {
+  DEFAULT_SETTINGS,
+  type RecorderSettings,
+} from "@/components/recorder/recorder-settings";
 import { RecordingHud } from "@/components/recorder/recording-hud";
 import { Editor } from "@/components/recorder/editor";
 import { Countdown } from "@/components/recorder/countdown";
@@ -18,6 +22,12 @@ export function RecorderShell() {
   const recorder = useScreenRecorder();
   const [micEnabled, setMicEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [settings, setSettings] = useState<RecorderSettings>(DEFAULT_SETTINGS);
+  const patchSettings = useCallback(
+    (patch: Partial<RecorderSettings>) =>
+      setSettings((s) => ({ ...s, ...patch })),
+    [],
+  );
 
   const {
     status,
@@ -37,8 +47,24 @@ export function RecorderShell() {
   const blocked = support.checked && !support.supported;
 
   const startRecording = useCallback(
-    () => start({ mic: micEnabled, camera: cameraEnabled }),
-    [start, micEnabled, cameraEnabled],
+    () =>
+      start({
+        mic: micEnabled,
+        camera: cameraEnabled,
+        resolution: settings.resolution,
+        fps: settings.fps,
+        countdown: settings.countdown,
+        cameraLayout: {
+          x: settings.camX,
+          y: settings.camY,
+          size: settings.camSize,
+          shape: settings.camShape,
+          mirror: settings.camMirror,
+          borderColor: settings.camBorderColor,
+          borderWidth: settings.camBorderWidth,
+        },
+      }),
+    [start, micEnabled, cameraEnabled, settings],
   );
 
   // Keyboard shortcuts: R to record, S to stop, Esc to cancel the countdown.
@@ -118,6 +144,8 @@ export function RecorderShell() {
             onMicChange={setMicEnabled}
             cameraEnabled={cameraEnabled}
             onCameraChange={setCameraEnabled}
+            settings={settings}
+            onSettingsChange={patchSettings}
           />
         )}
       </main>

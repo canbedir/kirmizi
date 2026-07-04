@@ -1,9 +1,39 @@
 "use client";
 
+export type CameraShape = "circle" | "rounded";
+
+export interface CameraLayout {
+  /** Bubble centre X, 0..1 of the frame width. */
+  x: number;
+  /** Bubble centre Y, 0..1 of the frame height. */
+  y: number;
+  /** Bubble diameter as a fraction of the frame height. */
+  size: number;
+  shape: CameraShape;
+  mirror: boolean;
+  /** Border colour, or null for no border. */
+  borderColor: string | null;
+  /** Border width as a fraction of the frame height. */
+  borderWidth: number;
+}
+
 export interface CameraComposite {
   stream: MediaStream;
   stop: () => void;
 }
+
+export const DEFAULT_CAMERA_LAYOUT: CameraLayout = {
+  x: 0.84,
+  y: 0.8,
+  size: 0.22,
+  shape: "circle",
+  mirror: true,
+  borderColor: null,
+  borderWidth: 0.006,
+};
+
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, v));
 
 function whenReady(video: HTMLVideoElement): Promise<void> {
   return new Promise((resolve) => {
@@ -13,13 +43,14 @@ function whenReady(video: HTMLVideoElement): Promise<void> {
 }
 
 /**
- * Composite the screen with a circular webcam bubble in the bottom-right corner
- * onto a canvas, and expose the canvas as a MediaStream for recording. Fully
- * client-side; the bubble is baked into the video frames.
+ * Composite the screen with a fully configurable webcam bubble onto a canvas and
+ * expose the canvas as a MediaStream for recording. Position, size, shape,
+ * mirror, and border are all caller-controlled. Fully client-side.
  */
 export async function composeCameraPip(
   screen: MediaStream,
   cam: MediaStream,
+  layout: CameraLayout = DEFAULT_CAMERA_LAYOUT,
 ): Promise<CameraComposite> {
   const screenVideo = document.createElement("video");
   screenVideo.srcObject = screen;
@@ -45,16 +76,24 @@ export async function composeCameraPip(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D isn't available for the camera overlay.");
 
-  const diameter = Math.round(height * 0.24);
-  const margin = Math.round(height * 0.035);
-  const cx = width - margin - diameter / 2;
-  const cy = height - margin - diameter / 2;
-  const ring = Math.max(2, Math.round(height * 0.005));
+  const diameter = Math.round(height * clamp(layout.size, 0.08, 0.5));
+  const half = diameter / 2;
+  const cx = clamp(layout.x * width, half, width - half);
+  const cy = clamp(layout.y * height, half, height - half);
+  const radius = layout.shape === "circle" ? half : Math.round(diameter * 0.2);
+  const borderW = layout.borderColor
+    ? Math.max(1, Math.round(height * layout.borderWidth))
+    : 0;
+
+  const pathBox = () => {
+    ctx.beginPath();
+    if (layout.shape === "circle") ctx.arc(cx, cy, half, 0, Math.PI * 2);
+    else ctx.roundRect(cx - half, cy - half, diameter, diameter, radius);
+  };
 
   const draw = () => {
     ctx.drawImage(screenVideo, 0, 0, width, height);
 
-    // Cover-fit the camera into a square, then clip it to a circle.
     const cw = camVideo.videoWidth || 1;
     const ch = camVideo.videoHeight || 1;
     const side = Math.min(cw, ch);
@@ -62,28 +101,43 @@ export async function composeCameraPip(
     const sy = (ch - side) / 2;
 
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, diameter / 2, 0, Math.PI * 2);
-    ctx.closePath();
+    pathBox();
     ctx.clip();
-    ctx.drawImage(
-      camVideo,
-      sx,
-      sy,
-      side,
-      side,
-      cx - diameter / 2,
-      cy - diameter / 2,
-      diameter,
-      diameter,
-    );
+    if (layout.mirror) {
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(
+        camVideo,
+        sx,
+        sy,
+        side,
+        side,
+        width - (cx - half) - diameter,
+        cy - half,
+        diameter,
+        diameter,
+      );
+    } else {
+      ctx.drawImage(
+        camVideo,
+        sx,
+        sy,
+        side,
+        side,
+        cx - half,
+        cy - half,
+        diameter,
+        diameter,
+      );
+    }
     ctx.restore();
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, diameter / 2, 0, Math.PI * 2);
-    ctx.lineWidth = ring;
-    ctx.strokeStyle = "rgba(246,45,34,0.9)";
-    ctx.stroke();
+    if (borderW > 0 && layout.borderColor) {
+      pathBox();
+      ctx.lineWidth = borderW;
+      ctx.strokeStyle = layout.borderColor;
+      ctx.stroke();
+    }
   };
 
   // Drive the draw loop from a Web Worker timer instead of requestAnimationFrame:

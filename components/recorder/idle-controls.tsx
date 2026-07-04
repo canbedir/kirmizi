@@ -3,6 +3,11 @@
 import { Camera, Loader2, Mic, Volume2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Switch } from "@/components/ui/switch";
+import {
+  CameraSettingsDialog,
+  RecorderSettings,
+  type RecorderSettings as RecorderSettingsType,
+} from "@/components/recorder/recorder-settings";
 
 interface IdleControlsProps {
   onStart: () => void;
@@ -11,6 +16,8 @@ interface IdleControlsProps {
   onMicChange: (enabled: boolean) => void;
   cameraEnabled: boolean;
   onCameraChange: (enabled: boolean) => void;
+  settings: RecorderSettingsType;
+  onSettingsChange: (patch: Partial<RecorderSettingsType>) => void;
 }
 
 export function IdleControls({
@@ -20,6 +27,8 @@ export function IdleControls({
   onMicChange,
   cameraEnabled,
   onCameraChange,
+  settings,
+  onSettingsChange,
 }: IdleControlsProps) {
   return (
     <div className="flex flex-col items-center gap-10 text-center">
@@ -75,29 +84,35 @@ export function IdleControls({
           <span className="font-mono text-xs opacity-70">best-effort</span>
         </span>
 
-        <label
+        <div
           className={cn(
-            "inline-flex cursor-pointer items-center gap-2.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
+            "inline-flex items-center gap-2.5 rounded-full border py-2 pr-2 pl-3.5 text-sm transition-colors",
             cameraEnabled
               ? "border-red/30 bg-red/10 text-foreground"
               : "border-border text-muted-foreground",
           )}
         >
-          <Camera className="size-4" />
-          Camera
-          <Switch
-            checked={cameraEnabled}
-            onCheckedChange={onCameraChange}
-            disabled={acquiring}
-            aria-label="Record webcam bubble"
+          <label className="inline-flex cursor-pointer items-center gap-2.5">
+            <Camera className="size-4" />
+            Camera
+            <Switch
+              checked={cameraEnabled}
+              onCheckedChange={onCameraChange}
+              disabled={acquiring}
+              aria-label="Record webcam bubble"
+            />
+          </label>
+          {/* Always rendered so toggling the camera doesn't resize the pill. */}
+          <span className="h-4 w-px bg-border" aria-hidden />
+          <CameraSettingsDialog
+            settings={settings}
+            onChange={onSettingsChange}
+            disabled={!cameraEnabled || acquiring}
           />
-        </label>
+        </div>
       </div>
 
-      <p className="max-w-sm text-sm text-muted-foreground">
-        Nothing leaves your browser. The recording is built on your device and
-        downloaded straight to you — no account, no upload.
-      </p>
+      <RecorderSettings settings={settings} onChange={onSettingsChange} />
 
       <p className="font-mono text-xs text-muted-foreground/70">
         Press{" "}
