@@ -21,6 +21,7 @@ import type { Recording } from "@/lib/use-screen-recorder";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { SPEED_STEPS, useVideoEditor, type Segment } from "@/lib/use-video-editor";
 import { canExportVideo, exportSegments } from "@/lib/export-segments";
+import { losslessTrim } from "@/lib/lossless-trim";
 import { generateThumbnails } from "@/lib/thumbnails";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/components/recorder/timeline";
@@ -68,6 +69,7 @@ export function Editor({
   const [zoomFactor, setZoomFactor] = useState(1);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
   const exportSupported = useMemo(() => canExportVideo(), []);
 
@@ -301,32 +303,83 @@ export function Editor({
       toast.success("Saved to your device");
       return;
     }
-    if (!canExportVideo()) {
-      saveUrl(recording.url, downloadName(recording.mimeType, false));
-      toast.error("This browser can't export edits — saved the full recording.");
-      return;
-    }
-    pause();
-    setExporting(true);
-    setProgress(0);
-    try {
-      const blob = await exportSegments(
-        recording.url,
-        editor.segments,
-        recording.mimeType,
-        setProgress,
-      );
+
+    // Pure cut/trim (no speed or mute) can be stream-copied losslessly; edits
+    // with effects still need a re-encode.
+    const cutOnly = editor.segments.every((s) => s.speed === 1 && !s.muted);
+    const filename = downloadName(recording.mimeType, true);
+    const fullName = downloadName(recording.mimeType, false);
+
+    const finish = (blob: Blob) => {
       const url = URL.createObjectURL(blob);
-      const filename = downloadName(recording.mimeType, true);
       saveUrl(url, filename);
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      toast.success("Edited clip saved", { description: filename });
+      toast.success("Clip saved", { description: filename });
+    };
+
+    pause();
+    setExporting(true);
+    setPreparing(false);
+    setProgress(0);
+    try {
+      if (cutOnly) {
+        try {
+          const blob = await losslessTrim(
+            recording.blob,
+            recording.mimeType,
+            editor.segments,
+            {
+              onLoading: () => setPreparing(true),
+              onProgress: (p) => {
+                setPreparing(false);
+                setProgress(p);
+              },
+            },
+          );
+          finish(blob);
+          return;
+        } catch {
+          // Lossless trim failed — fall back to a re-encode where possible.
+          setPreparing(false);
+          if (!canExportVideo()) {
+            saveUrl(recording.url, fullName);
+            toast.error("Couldn't trim here — saved the full recording.");
+            return;
+          }
+          finish(
+            await exportSegments(
+              recording.url,
+              editor.segments,
+              recording.mimeType,
+              setProgress,
+            ),
+          );
+          return;
+        }
+      }
+
+      if (!canExportVideo()) {
+        saveUrl(recording.url, fullName);
+        toast.error(
+          "This browser can't apply those edits — saved the full recording.",
+        );
+        return;
+      }
+      finish(
+        await exportSegments(
+          recording.url,
+          editor.segments,
+          recording.mimeType,
+          setProgress,
+        ),
+      );
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't export the clip.",
       );
     } finally {
       setExporting(false);
+      setPreparing(false);
     }
   }
 
@@ -527,7 +580,9 @@ export function Editor({
                 {exporting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Exporting {Math.round(progress * 100)}%
+                    {preparing
+                      ? "Preparing…"
+                      : `Exporting ${Math.round(progress * 100)}%`}
                   </>
                 ) : (
                   <>
@@ -541,8 +596,8 @@ export function Editor({
 
           {!exportSupported && (
             <p className="text-center text-xs text-muted-foreground">
-              Editing export isn&apos;t supported in this browser — you&apos;ll
-              get the full recording. Try Chrome, Edge, or Firefox.
+              Trims export losslessly here; speed and mute edits aren&apos;t
+              supported in this browser (you&apos;d get the full recording).
             </p>
           )}
 
