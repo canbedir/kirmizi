@@ -181,17 +181,27 @@ export function useScreenRecorder(): UseScreenRecorder {
         videoConstraints.height = { max: cap.h };
       }
 
+      const displayOptions: DisplayMediaStreamOptions = {
+        video: videoConstraints,
+        // Disable speech-oriented processing — it mangles music/system audio.
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      };
+      // Chromium-only hints that refine the *native* picker (it can't be
+      // replaced): offer system audio, allow switching the shared surface
+      // mid-recording, and drop our own tab (avoids the infinity-mirror).
+      Object.assign(displayOptions, {
+        systemAudio: "include",
+        surfaceSwitching: "include",
+        selfBrowserSurface: "exclude",
+      });
+
       let display: MediaStream;
       try {
-        display = await navigator.mediaDevices.getDisplayMedia({
-          video: videoConstraints,
-          // Disable speech-oriented processing — it mangles music/system audio.
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        });
+        display = await navigator.mediaDevices.getDisplayMedia(displayOptions);
       } catch (err) {
         // Cancelling the native picker rejects — treat that as a quiet no-op.
         if (
