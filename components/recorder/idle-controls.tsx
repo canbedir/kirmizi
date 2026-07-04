@@ -39,7 +39,7 @@ export function IdleControls({
         </button>
 
         <div className="space-y-1">
-          <p className="font-serif text-3xl leading-tight">
+          <p className="font-bold text-3xl leading-tight">
             {acquiring ? "Pick a screen to share" : "Start recording"}
           </p>
           <p className="text-sm text-muted-foreground">

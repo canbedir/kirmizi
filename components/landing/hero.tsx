@@ -63,7 +63,7 @@ export function Hero() {
 
         <motion.h1
           variants={item}
-          className="font-serif text-6xl leading-[1.02] tracking-tight text-balance sm:text-8xl"
+          className="font-serif font-normal text-6xl leading-[1.02] tracking-tight text-balance sm:text-8xl"
         >
           Record your screen.
           <br />

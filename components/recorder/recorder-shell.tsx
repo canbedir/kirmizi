@@ -85,7 +85,7 @@ export function RecorderShell() {
               <TriangleAlert className="size-7" />
             </span>
             <div className="space-y-2">
-              <h1 className="font-serif text-3xl">Something interrupted that</h1>
+              <h1 className="font-bold text-3xl">Something interrupted that</h1>
               <p className="text-muted-foreground">
                 {error ?? "The recording couldn't start."}
               </p>

@@ -41,7 +41,7 @@
   --font-sans: var(--font-bricolage);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-junicode);
-  --font-heading: var(--font-junicode);
+  --font-heading: var(--font-bricolage);
 
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -88,6 +88,8 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
+    /* Body text sits at medium; headings use font-bold (700). */
+    font-weight: 500;
     /* Prevent the fixed grain layer from producing a scrollbar. */
     overflow-x: hidden;
   }

@@ -15,7 +15,7 @@ export function Unsupported({ support }: { support: MediaSupport }) {
         <MonitorX className="size-7" />
       </span>
       <div className="space-y-2">
-        <h1 className="font-serif text-3xl">Not supported here</h1>
+        <h1 className="font-bold text-3xl">Not supported here</h1>
         <p className="text-muted-foreground">{reason}</p>
       </div>
       <p className="text-sm text-muted-foreground">

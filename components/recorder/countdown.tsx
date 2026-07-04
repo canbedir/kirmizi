@@ -16,7 +16,7 @@ export function Countdown({ value }: { value: number }) {
           animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1 }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.7 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="font-serif text-[14rem] leading-none text-red [text-shadow:0_0_60px_var(--glow)]"
+          className="font-bold text-[14rem] leading-none text-red [text-shadow:0_0_60px_var(--glow)]"
         >
           {value}
         </motion.span>

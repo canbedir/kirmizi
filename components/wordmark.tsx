@@ -17,7 +17,7 @@ export function Wordmark({
   const content = (
     <span className={cn("inline-flex items-baseline gap-1.5", className)}>
       <span className="record-dot size-2 self-center" aria-hidden />
-      <span className="font-serif text-2xl leading-none tracking-tight">
+      <span className="font-bold text-2xl leading-none tracking-tight">
         {siteConfig.name}
       </span>
     </span>

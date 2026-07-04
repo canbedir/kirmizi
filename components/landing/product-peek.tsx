@@ -69,7 +69,7 @@ export function ProductPeek() {
             >
               <span className="size-9 rounded-full bg-red shadow-[0_0_24px_var(--glow)]" />
             </button>
-            <p className="font-serif text-2xl">Start recording</p>
+            <p className="font-bold text-2xl">Start recording</p>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
