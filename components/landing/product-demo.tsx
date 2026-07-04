@@ -154,7 +154,8 @@ function LandingScene() {
   return (
     <div className="absolute inset-0">
       <div className="absolute left-[6%] top-[9%] flex items-center gap-[1cqw]">
-        <span className="record-dot size-[1.5cqw]" aria-hidden />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/kirmizi-logo.png" alt="" className="h-[3.4cqw] w-auto" />
         <span className="font-bold text-[3cqw] leading-none">Kırmızı</span>
       </div>
       <p className="absolute inset-x-0 top-[26%] text-center font-serif text-[7cqw] leading-[1.05]">
