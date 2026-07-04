@@ -53,13 +53,6 @@ export function Hero() {
         animate="show"
         className="mx-auto flex max-w-4xl flex-col items-center gap-7 px-6 pb-28 pt-24 text-center sm:pt-32"
       >
-        <motion.p
-          variants={item}
-          className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/60 px-3.5 py-1.5 text-xs text-muted-foreground backdrop-blur-sm"
-        >
-          <span className="record-dot size-1.5" aria-hidden />
-          No signup · nothing ever uploaded
-        </motion.p>
 
         <motion.h1
           variants={item}

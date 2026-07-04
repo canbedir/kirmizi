@@ -1,82 +1,90 @@
-# Kırmızı
+<p align="center">
+  <img src="public/kirmizi-logo.png" alt="Kırmızı" width="92" />
+</p>
 
-**Record your screen. Nothing leaves your browser.**
+<h1 align="center">Kırmızı</h1>
 
-Kırmızı (Turkish for _"red"_ — the colour of the recording light) is a
-privacy-first, no-signup screen recorder that runs **entirely in the browser**.
-Open a tab, pick your screen, hit record. No account, no upload, no watermark —
-every frame stays on your machine.
+<p align="center">
+  A privacy-first, browser-native screen recorder.<br />
+  Record your screen — nothing leaves your browser.
+</p>
 
-**[kirmizi.app](https://kirmizi.app)**
+<p align="center">
+  <a href="https://kirmizi.app"><strong>kirmizi.app</strong></a>
+</p>
 
-## Why
+---
 
-Every other screen recorder wants your email, your upload, your patience. Kırmızı
-wants none of it. The recording is built as a local `Blob` and downloaded
-straight to you — there is **no backend for your media**. Close the tab and it's
-gone.
+## Overview
+
+Kırmızı is a screen recorder that runs **entirely in the browser**. Users
+capture, edit, and download screen recordings without an account, an upload, or
+a watermark.
+
+Every recording is assembled locally as a file and saved directly to the user's
+device. There is **no backend for media** — nothing is transmitted to a server,
+and nothing persists once the tab is closed. Privacy is a structural guarantee
+of the architecture, not a policy.
 
 ## Features
 
-- **Local-only** — the file is built on your device and never uploaded.
-- **No account, ever** — no sign-up, no watermark.
-- **Mic + system audio** — mix in your voice; capture system sound where the
-  browser allows it.
-- **Webcam bubble** — an optional circular camera overlay, composited on a canvas.
-- **In-browser editor** — a multi-cut timeline with filmstrip, per-segment mute
-  and speed, and undo/redo.
-- **mp4 or webm** — mp4 when the browser can encode it, webm everywhere else.
-- **Countdown + keyboard shortcuts** — 3·2·1, then `R` record, `S` stop/split,
-  `Space`, `Ctrl+Z`.
+| Capability          | Description                                                                 |
+| ------------------- | --------------------------------------------------------------------------- |
+| Local-only capture  | The file is built on the device and never uploaded.                         |
+| No account          | No sign-up, no watermark, no tracking.                                       |
+| Audio               | Microphone capture mixed with system audio via the Web Audio API.           |
+| Webcam overlay      | An optional camera bubble composited onto a canvas, fully configurable.      |
+| In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, and undo/redo. |
+| Export formats      | MP4 when the browser can encode it, WebM everywhere else.                    |
+| Capture settings    | Resolution, frame rate, and countdown, chosen before recording.             |
+| Keyboard shortcuts  | `R` record · `S` stop / split · `Space` play · `Ctrl`+`Z` undo.             |
 
-## How it works
+## Architecture
 
-The whole product is a few well-understood browser APIs stitched together:
+The application is a single [Next.js](https://nextjs.org) project composed of two
+surfaces — a marketing landing page (`/`) and the recorder (`/record`) — built on
+a small set of web-platform APIs:
 
-- `navigator.mediaDevices.getDisplayMedia()` — screen / window / tab capture.
-- `getUserMedia()` + the **Web Audio API** — capture the mic and mix it with
-  system audio.
-- `<canvas>` + `captureStream()` — composite the webcam bubble and re-encode
-  edited clips.
-- `MediaRecorder` — encode the stream to a `Blob`.
-- `URL.createObjectURL` + an `<a download>` — save the file locally.
+| API                                 | Role                                             |
+| ----------------------------------- | ------------------------------------------------ |
+| `navigator.mediaDevices.getDisplayMedia()` | Screen, window, or tab capture.           |
+| `getUserMedia()` + Web Audio API    | Microphone capture and audio mixing.             |
+| `<canvas>` + `captureStream()`      | Webcam compositing and edited-clip re-encoding.  |
+| `MediaRecorder`                     | Encoding the stream to a `Blob`.                 |
+| `URL.createObjectURL` + `<a download>` | Saving the file locally.                      |
+
+No database, no authentication, and no server-side media handling are involved.
 
 ## Tech stack
 
-- **Next.js (App Router)** + **TypeScript**
-- **Tailwind CSS** + **shadcn/ui**
-- **motion** (Framer Motion) for animation
-- **next-themes** for the light/dark toggle
-- Fonts: **Junicode** (display serif), **Bricolage Grotesque** (UI), **Geist
-  Mono** (technical)
+- **Next.js (App Router)** · **TypeScript**
+- **Tailwind CSS** · **shadcn/ui**
+- **motion** — animation
+- **next-themes** — light / dark theming
+- Type: **Junicode** (display), **Bricolage Grotesque** (UI), **Geist Mono** (technical)
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
+npm run dev            # http://localhost:3000
 ```
 
-`getDisplayMedia` requires a secure context, so recording works on `localhost`
-in dev and over HTTPS in production.
+`getDisplayMedia` requires a secure context, so recording is available on
+`localhost` during development and over HTTPS in production.
 
 ```bash
-npm run build && npm run start   # production build
+npm run build && npm run start    # production build
 ```
 
 ## Browser support
 
-Best in **Chromium (Chrome / Edge)** and **Firefox** on desktop. Safari's
-support is partial; Kırmızı feature-detects the APIs and shows a friendly note
-where they're missing. System audio is best-effort across browsers/OSes; the mic
-is the reliable path.
-
-## Deploy
-
-Deploys as a static-friendly Next.js app on **Vercel**, which provides the HTTPS
-secure context `getDisplayMedia` needs. No database, no auth, no server-side
-media handling.
+Kırmızı targets desktop **Chromium (Chrome / Edge)** and **Firefox**, where
+support is strongest. Safari's implementation is partial; the app feature-detects
+the required APIs and presents a clear fallback where they are unavailable.
+Microphone capture is reliable across browsers, while system-audio capture is
+best-effort and depends on the browser and operating system.
 
 ## License
 
-[MIT](./LICENSE) © hix
+Released under the [MIT License](./LICENSE).
