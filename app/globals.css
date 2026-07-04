@@ -90,6 +90,8 @@
      (over the warm-black base) without doubling up on opaque panels/images. */
   html {
     @apply bg-background;
+    /* Smooth in-page anchor navigation (reset to auto under reduced motion). */
+    scroll-behavior: smooth;
   }
   body {
     @apply text-foreground font-sans;

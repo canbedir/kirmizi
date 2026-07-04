@@ -39,7 +39,10 @@ const features: Feature[] = [
 
 export function Features() {
   return (
-    <section id="features" className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
+    <section
+      id="features"
+      className="mx-auto max-w-6xl scroll-mt-20 px-6 py-24 sm:py-32"
+    >
       <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
         <Reveal>
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
