@@ -93,7 +93,10 @@ export function ProductDemo() {
 
   if (reduce) {
     return (
-      <div className="@container relative aspect-[16/10] w-full overflow-hidden bg-background">
+      <div
+      aria-hidden
+      className="@container relative aspect-[16/10] w-full overflow-hidden bg-background"
+    >
         <IdleScene />
       </div>
     );
@@ -102,7 +105,10 @@ export function ProductDemo() {
   const target = CURSOR[phase];
 
   return (
-    <div className="@container relative aspect-[16/10] w-full overflow-hidden bg-background">
+    <div
+      aria-hidden
+      className="@container relative aspect-[16/10] w-full overflow-hidden bg-background"
+    >
       <AnimatePresence mode="wait">
         <motion.div key={phase} className="absolute inset-0" {...sceneTransition}>
           {phase === "landing" && <LandingScene />}

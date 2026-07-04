@@ -7,7 +7,10 @@ import { formatDuration } from "@/lib/format";
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-40 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface p-4">
+    <div
+      aria-hidden
+      className="flex h-40 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface p-4"
+    >
       {children}
     </div>
   );

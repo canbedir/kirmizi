@@ -10,7 +10,7 @@ export default function HomePage() {
   return (
     <>
       <SiteNav />
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         <Hero />
         <ProductPeek />
         <HowItWorks />

@@ -76,7 +76,10 @@ export function RecorderShell() {
         <ThemeToggle />
       </header>
 
-      <main className="grid flex-1 place-items-center px-6 pb-16">
+      <main
+        id="main-content"
+        className="grid flex-1 place-items-center px-6 pb-16"
+      >
         {blocked ? (
           <Unsupported support={support} />
         ) : status === "error" ? (
