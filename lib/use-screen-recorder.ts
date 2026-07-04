@@ -319,9 +319,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       const settings = display.getVideoTracks()[0]?.getSettings();
       const pixels = (settings?.width ?? 1920) * (settings?.height ?? 1080);
       const fps = settings?.frameRate ?? 30;
+      // Generous bits-per-pixel for crisp screen/text; caps high so 1440p/4K
+      // aren't starved. Bigger files, better quality.
       const videoBitsPerSecond = Math.min(
-        40_000_000,
-        Math.max(5_000_000, Math.round(pixels * fps * 0.13)),
+        80_000_000,
+        Math.max(8_000_000, Math.round(pixels * fps * 0.2)),
       );
 
       const recordStream = new MediaStream([...videoTracks, ...audioTracks]);
