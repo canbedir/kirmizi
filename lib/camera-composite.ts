@@ -51,7 +51,6 @@ export async function composeCameraPip(
   const cy = height - margin - diameter / 2;
   const ring = Math.max(2, Math.round(height * 0.005));
 
-  let raf = 0;
   const draw = () => {
     ctx.drawImage(screenVideo, 0, 0, width, height);
 
@@ -85,14 +84,43 @@ export async function composeCameraPip(
     ctx.lineWidth = ring;
     ctx.strokeStyle = "rgba(246,45,34,0.9)";
     ctx.stroke();
-
-    raf = requestAnimationFrame(draw);
   };
-  raf = requestAnimationFrame(draw);
+
+  // Drive the draw loop from a Web Worker timer instead of requestAnimationFrame:
+  // rAF is frozen in background tabs, which would freeze the composited
+  // recording the moment the user switches away. Worker timers keep ticking.
+  let stopTicker: () => void;
+  try {
+    const url = URL.createObjectURL(
+      new Blob(
+        [
+          "let id;onmessage=e=>{if(e.data==='start'){id=setInterval(()=>postMessage(0),33)}else{clearInterval(id)}}",
+        ],
+        { type: "application/javascript" },
+      ),
+    );
+    const worker = new Worker(url);
+    worker.onmessage = () => draw();
+    worker.postMessage("start");
+    stopTicker = () => {
+      worker.postMessage("stop");
+      worker.terminate();
+      URL.revokeObjectURL(url);
+    };
+  } catch {
+    let raf = 0;
+    const loop = () => {
+      draw();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    stopTicker = () => cancelAnimationFrame(raf);
+  }
+  draw();
 
   const stream = canvas.captureStream(30);
   const stop = () => {
-    cancelAnimationFrame(raf);
+    stopTicker();
     screenVideo.srcObject = null;
     camVideo.srcObject = null;
     stream.getTracks().forEach((track) => track.stop());
