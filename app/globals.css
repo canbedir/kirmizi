@@ -86,8 +86,14 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Base colour lives on html so the grain layer can sit *behind* content
+     (over the warm-black base) without doubling up on opaque panels/images. */
+  html {
+    @apply bg-background;
+  }
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply text-foreground font-sans;
+    background-color: transparent;
     /* Body text sits at medium; headings use font-bold (700). */
     font-weight: 500;
     /* Prevent the fixed grain layer from producing a scrollbar. */
@@ -100,14 +106,15 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Film-grain / noise texture — a subtle fixed overlay for warmth over the
-   dark base. Sits above surfaces but never intercepts pointer events.
+   Film-grain / noise texture — a subtle fixed layer for warmth. Sits *behind*
+   content (z-index -1) so it only shows over the warm-black base, never over
+   panels, screenshots, or text.
 --------------------------------------------------------------------------- */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: -1;
   pointer-events: none;
   opacity: 0.04;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");

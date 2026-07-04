@@ -1,11 +1,4 @@
-import {
-  FileVideo,
-  Keyboard,
-  Mic,
-  Scissors,
-  ShieldCheck,
-  Zap,
-} from "lucide-react";
+import { FileVideo, Mic, Scissors, ShieldCheck, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Reveal } from "@/components/landing/reveal";
 import { FeatureDemo } from "@/components/landing/feature-demo";

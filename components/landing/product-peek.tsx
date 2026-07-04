@@ -7,12 +7,12 @@ import {
   useScroll,
   useTransform,
 } from "motion/react";
-import { Camera, Mic, Volume2 } from "lucide-react";
+import { ProductDemo } from "@/components/landing/product-demo";
 
 /**
- * The "product peek" — a rounded mock of the recorder's idle screen rising from
- * below with a soft shadow and a faint red glow (the Zen move, our own UI).
- * Placeholder art until /record exists; swap for a real screenshot in step 12.
+ * The "product peek" — a looping, code-driven walkthrough of the recorder in a
+ * browser-style frame that rises from below with a soft shadow and a faint red
+ * glow (the Zen move, our own UI).
  */
 export function ProductPeek() {
   const reduce = useReducedMotion();
@@ -58,55 +58,9 @@ export function ProductPeek() {
           </div>
         </div>
 
-        {/* Recorder idle mock */}
-        <div className="relative flex aspect-[16/10] flex-col items-center justify-center gap-7 bg-gradient-to-b from-background to-surface p-8">
-          <div className="flex flex-col items-center gap-4">
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden
-              className="group grid size-20 place-items-center rounded-full border-2 border-red/40 transition-colors"
-            >
-              <span className="size-9 rounded-full bg-red shadow-[0_0_24px_var(--glow)]" />
-            </button>
-            <p className="font-bold text-2xl">Start recording</p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <MockToggle icon={<Mic className="size-4" />} label="Mic" active />
-            <MockToggle icon={<Volume2 className="size-4" />} label="System audio" />
-            <MockToggle icon={<Camera className="size-4" />} label="Camera" />
-          </div>
-
-          <p className="font-mono text-xs text-muted-foreground">
-            Nothing leaves your browser.
-          </p>
-        </div>
+        {/* Looping, code-driven walkthrough of the recording flow. */}
+        <ProductDemo />
       </motion.div>
     </section>
-  );
-}
-
-function MockToggle({
-  icon,
-  label,
-  active = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm " +
-        (active
-          ? "border-red/30 bg-red/10 text-foreground"
-          : "border-border text-muted-foreground")
-      }
-    >
-      {icon}
-      {label}
-    </span>
   );
 }
