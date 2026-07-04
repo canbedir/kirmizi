@@ -8,10 +8,7 @@ import { Wordmark } from "@/components/wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { IdleControls } from "@/components/recorder/idle-controls";
-import {
-  DEFAULT_SETTINGS,
-  type RecorderSettings,
-} from "@/components/recorder/recorder-settings";
+import { useRecorderSettings } from "@/components/recorder/recorder-settings";
 import { RecordingHud } from "@/components/recorder/recording-hud";
 import { Editor } from "@/components/recorder/editor";
 import { Countdown } from "@/components/recorder/countdown";
@@ -22,12 +19,7 @@ export function RecorderShell() {
   const recorder = useScreenRecorder();
   const [micEnabled, setMicEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [settings, setSettings] = useState<RecorderSettings>(DEFAULT_SETTINGS);
-  const patchSettings = useCallback(
-    (patch: Partial<RecorderSettings>) =>
-      setSettings((s) => ({ ...s, ...patch })),
-    [],
-  );
+  const [settings, patchSettings] = useRecorderSettings();
 
   const {
     status,

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { CameraOff, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Resolution } from "@/lib/use-screen-recorder";
@@ -40,6 +46,54 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   camBorderColor: null,
   camBorderWidth: 0.006,
 };
+
+// --- persistence -----------------------------------------------------------
+const STORAGE_KEY = "kirmizi:recorder-settings";
+const SETTINGS_EVENT = "kirmizi:settings";
+
+let cacheRaw: string | null = null;
+let cache: RecorderSettings = DEFAULT_SETTINGS;
+
+function readSettings(): RecorderSettings {
+  if (typeof localStorage === "undefined") return DEFAULT_SETTINGS;
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw !== cacheRaw) {
+    cacheRaw = raw;
+    try {
+      cache = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+    } catch {
+      cache = DEFAULT_SETTINGS;
+    }
+  }
+  return cache;
+}
+
+function subscribeSettings(callback: () => void) {
+  window.addEventListener(SETTINGS_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(SETTINGS_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+/** Recorder settings persisted to localStorage (SSR-safe, no backend). */
+export function useRecorderSettings(): [
+  RecorderSettings,
+  (patch: Partial<RecorderSettings>) => void,
+] {
+  const settings = useSyncExternalStore(
+    subscribeSettings,
+    readSettings,
+    () => DEFAULT_SETTINGS,
+  );
+  const patch = useCallback((next: Partial<RecorderSettings>) => {
+    const merged = { ...readSettings(), ...next };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    window.dispatchEvent(new Event(SETTINGS_EVENT));
+  }, []);
+  return [settings, patch];
+}
 
 const BORDERS: { label: string; color: string | null }[] = [
   { label: "None", color: null },
