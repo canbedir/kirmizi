@@ -37,6 +37,7 @@
   --color-red: var(--red);
   --color-red-hover: var(--red-hover);
   --color-red-dim: var(--red-dim);
+  --color-red-foreground: var(--red-foreground);
 
   --font-sans: var(--font-bricolage);
   --font-mono: var(--font-geist-mono);

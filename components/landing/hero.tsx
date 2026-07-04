@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { motion, useReducedMotion, type Variants } from "motion/react";
-import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { socialLinks } from "@/lib/site";
 import { buttonVariants } from "@/components/ui/button";
+import { RecordButton } from "@/components/record-button";
 import { GithubIcon, XIcon, BlueskyIcon } from "@/components/icons";
 
 const socialIcons = {
@@ -82,21 +82,12 @@ export function Hero() {
           variants={item}
           className="flex flex-col items-center gap-3 sm:flex-row"
         >
-          <Link
-            href="/record"
-            className={cn(
-              buttonVariants({ size: "lg" }),
-              "h-11 gap-2 px-6 text-sm shadow-[0_8px_30px_-8px_var(--glow)]",
-            )}
-          >
-            Start recording — it&apos;s free
-            <ArrowRight className="size-4" />
-          </Link>
+          <RecordButton size="lg">Start recording — it&apos;s free</RecordButton>
           <Link
             href="/#how-it-works"
             className={cn(
               buttonVariants({ variant: "outline", size: "lg" }),
-              "h-11 px-6 text-sm",
+              "h-12 px-6 text-base",
             )}
           >
             See how it works

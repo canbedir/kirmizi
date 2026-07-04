@@ -7,7 +7,7 @@ import { navLinks, siteConfig } from "@/lib/site";
 import { Wordmark } from "@/components/wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { GithubIcon } from "@/components/icons";
-import { buttonVariants } from "@/components/ui/button";
+import { RecordButton } from "@/components/record-button";
 
 export function SiteNav() {
   const [scrolled, setScrolled] = useState(false);
@@ -54,15 +54,9 @@ export function SiteNav() {
 
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
-          <Link
-            href="/record"
-            className={cn(
-              buttonVariants({ size: "sm" }),
-              "hidden sm:inline-flex",
-            )}
-          >
+          <RecordButton size="sm" className="hidden sm:inline-block">
             Start recording
-          </Link>
+          </RecordButton>
         </div>
       </nav>
     </header>
