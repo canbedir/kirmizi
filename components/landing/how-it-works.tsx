@@ -1,4 +1,5 @@
 import { Reveal } from "@/components/landing/reveal";
+import { StepVisual } from "@/components/landing/how-visuals";
 
 const steps = [
   {
@@ -36,12 +37,15 @@ export function HowItWorks() {
       <div className="grid gap-10 sm:grid-cols-3 sm:gap-8">
         {steps.map((step, i) => (
           <Reveal key={step.n} delay={i * 0.08}>
-            <div className="flex flex-col gap-3 border-t border-border pt-5">
-              <span className="font-mono text-sm text-red">{step.n}</span>
-              <h3 className="font-bold text-2xl">{step.title}</h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                {step.body}
-              </p>
+            <div className="flex flex-col gap-5">
+              <StepVisual n={i} />
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                <span className="font-mono text-sm text-red">{step.n}</span>
+                <h3 className="font-bold text-2xl">{step.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {step.body}
+                </p>
+              </div>
             </div>
           </Reveal>
         ))}
