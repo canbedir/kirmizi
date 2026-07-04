@@ -249,13 +249,31 @@ export function useScreenRecorder(): UseScreenRecorder {
         }
       }
 
+      // Bias the encoder toward sharp screen/text content (detail over motion)
+      // and pick a generous bitrate from the capture resolution so text stays
+      // crisp — MediaRecorder's default is far too low for screen recording.
+      for (const track of videoTracks) {
+        (track as MediaStreamTrack & { contentHint: string }).contentHint =
+          "detail";
+      }
+      const settings = display.getVideoTracks()[0]?.getSettings();
+      const pixels = (settings?.width ?? 1920) * (settings?.height ?? 1080);
+      const fps = settings?.frameRate ?? 30;
+      const videoBitsPerSecond = Math.min(
+        40_000_000,
+        Math.max(5_000_000, Math.round(pixels * fps * 0.13)),
+      );
+
       const recordStream = new MediaStream([...videoTracks, ...audioTracks]);
 
       chunksRef.current = [];
       const mimeType = pickMimeType();
       let recorder: MediaRecorder;
       try {
-        const options: MediaRecorderOptions = { audioBitsPerSecond: 192_000 };
+        const options: MediaRecorderOptions = {
+          audioBitsPerSecond: 192_000,
+          videoBitsPerSecond,
+        };
         if (mimeType) options.mimeType = mimeType;
         recorder = new MediaRecorder(recordStream, options);
       } catch {
