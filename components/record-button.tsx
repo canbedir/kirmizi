@@ -40,7 +40,7 @@ export function RecordButton({
       <Link
         href={href}
         className={cn(
-          "group relative inline-flex items-center overflow-hidden rounded-full bg-red font-medium text-red-foreground shadow-[0_10px_30px_-8px_var(--glow)] outline-none transition-[background-color,box-shadow] hover:bg-red-hover hover:shadow-[0_16px_44px_-8px_var(--glow)] focus-visible:ring-2 focus-visible:ring-red/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "group relative inline-flex items-center whitespace-nowrap overflow-hidden rounded-full bg-red font-medium text-red-foreground shadow-[0_10px_30px_-8px_var(--glow)] outline-none transition-[background-color,box-shadow] hover:bg-red-hover hover:shadow-[0_16px_44px_-8px_var(--glow)] focus-visible:ring-2 focus-visible:ring-red/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           SIZES[size],
         )}
       >

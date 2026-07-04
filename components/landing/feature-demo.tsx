@@ -63,7 +63,7 @@ export function FeatureDemo() {
   return (
     <motion.div
       aria-hidden
-      className="relative"
+      className="relative w-full min-w-0"
       animate={reduce ? undefined : { y: [0, -12, 0] }}
       transition={
         reduce

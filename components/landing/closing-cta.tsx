@@ -6,7 +6,7 @@ export function ClosingCta() {
   return (
     <section className="px-6 py-24 sm:py-32">
       <Reveal className="mx-auto max-w-4xl">
-        <div className="relative overflow-hidden rounded-3xl border border-border bg-surface/40 px-8 py-16 text-center sm:py-20">
+        <div className="relative overflow-hidden rounded-3xl border border-border bg-surface/40 px-5 py-16 text-center sm:px-10 sm:py-20">
           {/* Soft red glow */}
           <div
             aria-hidden
