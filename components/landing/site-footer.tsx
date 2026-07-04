@@ -6,15 +6,15 @@ import { GithubIcon } from "@/components/icons";
 export function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-border">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-12 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-3">
+      <div className="mx-auto flex max-w-6xl flex-col items-center gap-8 px-6 py-12 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+        <div className="flex flex-col items-center gap-3 sm:items-start">
           <Wordmark />
           <p className="max-w-xs text-sm text-muted-foreground">
             Record your screen. Nothing leaves your browser.
           </p>
         </div>
 
-        <div className="flex flex-col gap-4 text-sm text-muted-foreground sm:items-end">
+        <div className="flex flex-col items-center gap-4 text-sm text-muted-foreground sm:items-end">
           <div className="flex items-center gap-6">
             {navLinks.map((link) => (
               <Link
