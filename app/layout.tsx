@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Bricolage_Grotesque } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
 // Display serif — Junicode, subset to Latin + Turkish and shipped locally
@@ -25,9 +26,49 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "Kırmızı — Record your screen. Nothing leaves your browser.",
-  description:
-    "A privacy-first, no-signup screen recorder that runs entirely in your browser. No account, no upload, no watermark — every frame stays on your machine.",
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: `${siteConfig.name} — ${siteConfig.tagline}`,
+    template: `%s — ${siteConfig.name}`,
+  },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  keywords: [
+    "screen recorder",
+    "browser screen recorder",
+    "record screen online",
+    "no upload",
+    "privacy",
+    "no signup",
+    "webm",
+    "mp4",
+    "screen capture",
+    "kirmizi",
+  ],
+  authors: [{ name: siteConfig.author }],
+  creator: siteConfig.author,
+  openGraph: {
+    type: "website",
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    description: siteConfig.description,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    description: siteConfig.description,
+  },
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0E0D0C" },
+    { media: "(prefers-color-scheme: light)", color: "#F5F1E8" },
+  ],
 };
 
 export default function RootLayout({
