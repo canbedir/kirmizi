@@ -78,6 +78,10 @@ export async function losslessTrim(
         String(Math.max(0.05, seg.end - seg.start)),
         "-c",
         "copy",
+        // Input-seek + stream-copy leaves negative timestamps at the cut, which
+        // makes players drop the audio — shift them so the clip keeps its sound.
+        "-avoid_negative_ts",
+        "make_zero",
         name,
       ]);
       files.push(name);
