@@ -5,7 +5,11 @@ import { siteConfig } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const alt = `${siteConfig.name} — ${siteConfig.tagline}`;
-export const size = { width: 1200, height: 630 };
+// Rendered at 2× (2400×1260, same 1.91:1 ratio) so downscaled social previews
+// stay crisp; platforms scale it down cleanly.
+const SCALE = 2;
+const s = (n: number) => n * SCALE;
+export const size = { width: s(1200), height: s(630) };
 export const contentType = "image/png";
 
 const RED = "#F6433A";
@@ -26,16 +30,21 @@ export default async function OpengraphImage() {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
-        border: `1px solid ${BORDER}`,
+        gap: s(10),
+        border: `${s(1)}px solid ${BORDER}`,
         borderRadius: 999,
-        padding: "8px 16px",
-        fontSize: 22,
+        padding: `${s(8)}px ${s(16)}px`,
+        fontSize: s(22),
         color: MUTED,
       }}
     >
       <div
-        style={{ width: 10, height: 10, borderRadius: 999, background: RED }}
+        style={{
+          width: s(10),
+          height: s(10),
+          borderRadius: 999,
+          background: RED,
+        }}
       />
       {label}
     </div>
@@ -58,10 +67,10 @@ export default async function OpengraphImage() {
         <div
           style={{
             position: "absolute",
-            top: 90,
-            right: 40,
-            width: 620,
-            height: 460,
+            top: s(90),
+            right: s(40),
+            width: s(620),
+            height: s(460),
             background:
               "radial-gradient(50% 50% at 50% 50%, rgba(246,45,34,0.28), rgba(246,45,34,0))",
             display: "flex",
@@ -74,19 +83,19 @@ export default async function OpengraphImage() {
             display: "flex",
             flexDirection: "column",
             justifyContent: "center",
-            width: 640,
-            padding: "0 0 0 80px",
+            width: s(640),
+            padding: `0 0 0 ${s(80)}px`,
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoSrc} width={66} height={74} alt="" />
+          <img src={logoSrc} width={s(66)} height={s(74)} alt="" />
           <div
             style={{
               display: "flex",
-              fontSize: 104,
+              fontSize: s(104),
               fontWeight: 700,
-              letterSpacing: -2,
-              marginTop: 22,
+              letterSpacing: s(-2),
+              marginTop: s(22),
             }}
           >
             {siteConfig.name}
@@ -94,15 +103,15 @@ export default async function OpengraphImage() {
           <div
             style={{
               display: "flex",
-              fontSize: 32,
+              fontSize: s(32),
               fontWeight: 400,
-              marginTop: 8,
+              marginTop: s(8),
               color: MUTED,
             }}
           >
             {siteConfig.tagline}
           </div>
-          <div style={{ display: "flex", gap: 12, marginTop: 34 }}>
+          <div style={{ display: "flex", gap: s(12), marginTop: s(34) }}>
             {pill("Nothing uploaded")}
             {pill("No signup")}
           </div>
@@ -121,12 +130,12 @@ export default async function OpengraphImage() {
             style={{
               display: "flex",
               flexDirection: "column",
-              width: 460,
-              height: 388,
-              borderRadius: 20,
-              border: `1px solid ${BORDER}`,
+              width: s(460),
+              height: s(388),
+              borderRadius: s(20),
+              border: `${s(1)}px solid ${BORDER}`,
               background: "#161311",
-              boxShadow: "0 40px 100px rgba(0,0,0,0.55)",
+              boxShadow: `0 ${s(40)}px ${s(100)}px rgba(0,0,0,0.55)`,
               overflow: "hidden",
             }}
           >
@@ -135,22 +144,22 @@ export default async function OpengraphImage() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
-                padding: "16px 18px",
-                borderBottom: `1px solid ${BORDER}`,
+                gap: s(8),
+                padding: `${s(16)}px ${s(18)}px`,
+                borderBottom: `${s(1)}px solid ${BORDER}`,
               }}
             >
-              <div style={{ width: 11, height: 11, borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
-              <div style={{ width: 11, height: 11, borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
-              <div style={{ width: 11, height: 11, borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
+              <div style={{ width: s(11), height: s(11), borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
+              <div style={{ width: s(11), height: s(11), borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
+              <div style={{ width: s(11), height: s(11), borderRadius: 999, background: "rgba(155,147,133,0.35)" }} />
               <div
                 style={{
                   display: "flex",
-                  margin: "0 auto",
-                  padding: "5px 14px",
-                  borderRadius: 8,
+                  margin: `0 auto`,
+                  padding: `${s(5)}px ${s(14)}px`,
+                  borderRadius: s(8),
                   background: "rgba(14,13,12,0.6)",
-                  fontSize: 18,
+                  fontSize: s(18),
                   color: MUTED,
                 }}
               >
@@ -165,7 +174,7 @@ export default async function OpengraphImage() {
                 flex: 1,
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 22,
+                gap: s(22),
               }}
             >
               <div
@@ -173,17 +182,17 @@ export default async function OpengraphImage() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: 128,
-                  height: 128,
+                  width: s(128),
+                  height: s(128),
                   borderRadius: 999,
-                  border: `4px solid rgba(246,45,34,0.4)`,
+                  border: `${s(4)}px solid rgba(246,45,34,0.4)`,
                 }}
               >
                 <div
-                  style={{ width: 58, height: 58, borderRadius: 999, background: RED }}
+                  style={{ width: s(58), height: s(58), borderRadius: 999, background: RED }}
                 />
               </div>
-              <div style={{ display: "flex", fontSize: 28, fontWeight: 700 }}>
+              <div style={{ display: "flex", fontSize: s(28), fontWeight: 700 }}>
                 Start recording
               </div>
             </div>
