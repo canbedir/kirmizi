@@ -163,6 +163,45 @@ body::before {
   animation: kirmizi-pulse 2s ease-out infinite;
 }
 
+/* Record CTA — a red gradient with a bright band that sweeps across, plus a
+   blinking indicator dot. */
+@keyframes btn-record-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.btn-record {
+  background-image: linear-gradient(
+    115deg,
+    #cf1c10 0%,
+    #f62d22 30%,
+    #ff6a4a 50%,
+    #f62d22 70%,
+    #cf1c10 100%
+  );
+  background-size: 230% 100%;
+  animation: btn-record-flow 5s ease-in-out infinite;
+}
+
+@keyframes btn-record-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.btn-record-dot {
+  animation: btn-record-blink 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
