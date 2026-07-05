@@ -68,6 +68,13 @@ export async function losslessTrim(
   try {
     await ff.writeFile(input, await fetchFile(source));
 
+    // Copy the video losslessly; for mp4, transcode the Opus audio that browsers
+    // put in the container to AAC so native players/editors actually get sound.
+    const codec =
+      ext === "mp4"
+        ? ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+        : ["-c", "copy"];
+
     const cut = async (seg: TrimSegment, name: string) => {
       await ff.exec([
         "-ss",
@@ -76,8 +83,7 @@ export async function losslessTrim(
         input,
         "-t",
         String(Math.max(0.05, seg.end - seg.start)),
-        "-c",
-        "copy",
+        ...codec,
         // Input-seek + stream-copy leaves negative timestamps at the cut, which
         // makes players drop the audio — shift them so the clip keeps its sound.
         "-avoid_negative_ts",
@@ -119,6 +125,47 @@ export async function losslessTrim(
   } finally {
     progressCb = null;
     for (const name of files) {
+      try {
+        await ff.deleteFile(name);
+      } catch {
+        /* file may not exist */
+      }
+    }
+  }
+}
+
+/**
+ * Make an mp4 recording play everywhere: browsers put Opus audio in the mp4,
+ * which native players and editors can't decode. Copy the H.264 video and
+ * transcode the audio to AAC (lossless video, tiny cost).
+ */
+export async function toCompatibleMp4(
+  source: Blob,
+  opts?: { onLoading?: () => void; onProgress?: (fraction: number) => void },
+): Promise<Blob> {
+  const ff = await ensureFFmpeg(opts?.onLoading);
+  const { fetchFile } = await import("@ffmpeg/util");
+  progressCb = opts?.onProgress ?? null;
+  try {
+    await ff.writeFile("compat-in.mp4", await fetchFile(source));
+    await ff.exec([
+      "-i",
+      "compat-in.mp4",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-movflags",
+      "+faststart",
+      "compat-out.mp4",
+    ]);
+    const data = (await ff.readFile("compat-out.mp4")) as Uint8Array;
+    return new Blob([new Uint8Array(data)], { type: "video/mp4" });
+  } finally {
+    progressCb = null;
+    for (const name of ["compat-in.mp4", "compat-out.mp4"]) {
       try {
         await ff.deleteFile(name);
       } catch {

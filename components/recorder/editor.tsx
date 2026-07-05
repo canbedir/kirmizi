@@ -21,7 +21,7 @@ import type { Recording } from "@/lib/use-screen-recorder";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { SPEED_STEPS, useVideoEditor, type Segment } from "@/lib/use-video-editor";
 import { canExportVideo, exportSegments } from "@/lib/export-segments";
-import { losslessTrim } from "@/lib/lossless-trim";
+import { losslessTrim, toCompatibleMp4 } from "@/lib/lossless-trim";
 import { generateThumbnails } from "@/lib/thumbnails";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/components/recorder/timeline";
@@ -298,23 +298,25 @@ export function Editor({
   }, []);
 
   async function handleExport() {
-    if (!isEdited) {
-      saveUrl(recording.url, downloadName(recording.mimeType, false));
-      toast.success("Saved to your device");
-      return;
-    }
-
+    const isMp4 = recording.mimeType.includes("mp4");
     // Pure cut/trim (no speed or mute) can be stream-copied losslessly; edits
     // with effects still need a re-encode.
     const cutOnly = editor.segments.every((s) => s.speed === 1 && !s.muted);
-    const filename = downloadName(recording.mimeType, true);
+    const filename = downloadName(recording.mimeType, isEdited);
     const fullName = downloadName(recording.mimeType, false);
 
-    const finish = (blob: Blob) => {
+    const ffCbs = {
+      onLoading: () => setPreparing(true),
+      onProgress: (p: number) => {
+        setPreparing(false);
+        setProgress(p);
+      },
+    };
+    const finish = (blob: Blob, name: string) => {
       const url = URL.createObjectURL(blob);
-      saveUrl(url, filename);
+      saveUrl(url, name);
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      toast.success("Clip saved", { description: filename });
+      toast.success("Clip saved", { description: name });
     };
 
     pause();
@@ -322,21 +324,29 @@ export function Editor({
     setPreparing(false);
     setProgress(0);
     try {
+      // Full recording — mp4 needs its Opus audio remuxed to AAC so native
+      // players get sound; webm is left as-is.
+      if (!isEdited) {
+        if (isMp4) {
+          finish(await toCompatibleMp4(recording.blob, ffCbs), fullName);
+        } else {
+          saveUrl(recording.url, fullName);
+          toast.success("Saved to your device");
+        }
+        return;
+      }
+
       if (cutOnly) {
         try {
-          const blob = await losslessTrim(
-            recording.blob,
-            recording.mimeType,
-            editor.segments,
-            {
-              onLoading: () => setPreparing(true),
-              onProgress: (p) => {
-                setPreparing(false);
-                setProgress(p);
-              },
-            },
+          finish(
+            await losslessTrim(
+              recording.blob,
+              recording.mimeType,
+              editor.segments,
+              ffCbs,
+            ),
+            filename,
           );
-          finish(blob);
           return;
         } catch {
           // Lossless trim failed — fall back to a re-encode where possible.
@@ -346,18 +356,19 @@ export function Editor({
             toast.error("Couldn't trim here — saved the full recording.");
             return;
           }
-          finish(
-            await exportSegments(
-              recording.url,
-              editor.segments,
-              recording.mimeType,
-              setProgress,
-            ),
+          let blob = await exportSegments(
+            recording.url,
+            editor.segments,
+            recording.mimeType,
+            setProgress,
           );
+          if (isMp4) blob = await toCompatibleMp4(blob, ffCbs);
+          finish(blob, filename);
           return;
         }
       }
 
+      // Speed / mute edits need a re-encode.
       if (!canExportVideo()) {
         saveUrl(recording.url, fullName);
         toast.error(
@@ -365,14 +376,14 @@ export function Editor({
         );
         return;
       }
-      finish(
-        await exportSegments(
-          recording.url,
-          editor.segments,
-          recording.mimeType,
-          setProgress,
-        ),
+      let blob = await exportSegments(
+        recording.url,
+        editor.segments,
+        recording.mimeType,
+        setProgress,
       );
+      if (isMp4) blob = await toCompatibleMp4(blob, ffCbs);
+      finish(blob, filename);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't export the clip.",
