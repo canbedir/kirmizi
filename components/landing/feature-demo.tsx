@@ -60,6 +60,18 @@ export function FeatureDemo() {
 
   const strip = [...FRAMES, ...FRAMES];
 
+  // Cascade the panel's rows in on first view: HUD → filmstrip → timeline → footer.
+  const enter = (i: number) => ({
+    initial: reduce ? undefined : { opacity: 0, y: 10 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: { once: true },
+    transition: {
+      delay: 0.15 + i * 0.12,
+      duration: 0.5,
+      ease: [0.22, 1, 0.36, 1] as const,
+    },
+  });
+
   return (
     <motion.div
       aria-hidden
@@ -93,7 +105,7 @@ export function FeatureDemo() {
 
         <div className="space-y-6 p-6">
           {/* Recording HUD */}
-          <div className="flex items-center justify-between">
+          <motion.div className="flex items-center justify-between" {...enter(0)}>
             <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
               <span className="record-dot record-dot--live size-2" aria-hidden />
               Recording
@@ -101,10 +113,20 @@ export function FeatureDemo() {
             <span className="font-mono text-2xl tabular-nums">
               {formatDuration(seconds * 1000)}
             </span>
-          </div>
+          </motion.div>
 
-          {/* Filmstrip — screen frames scrolling by like footage */}
-          <div className="h-16 overflow-hidden rounded-lg">
+          {/* Filmstrip — screen frames scrolling by like footage, fading out
+              at the edges instead of hard-clipping */}
+          <motion.div
+            className="h-16 overflow-hidden rounded-lg"
+            style={{
+              maskImage:
+                "linear-gradient(90deg, transparent, black 10%, black 90%, transparent)",
+              WebkitMaskImage:
+                "linear-gradient(90deg, transparent, black 10%, black 90%, transparent)",
+            }}
+            {...enter(1)}
+          >
             <motion.div
               className="flex h-full w-max"
               animate={reduce ? undefined : { x: ["0%", "-50%"] }}
@@ -118,52 +140,78 @@ export function FeatureDemo() {
                 <Frame key={i} frame={frame} />
               ))}
             </motion.div>
-          </div>
+          </motion.div>
 
           {/* Timeline with a cut + sweeping playhead */}
-          <div className="relative h-10 overflow-hidden rounded-lg border border-border bg-background/50">
+          <motion.div
+            className="relative h-10 overflow-hidden rounded-lg border border-border bg-background/50"
+            {...enter(2)}
+          >
             <div className="absolute inset-y-1 left-1 w-[38%] rounded-md bg-red/15 ring-1 ring-red/30" />
             <div
               className="absolute inset-y-1 rounded-md bg-red/15 ring-1 ring-red/30"
               style={{ left: "46%", right: "4px" }}
             />
-            {/* the cut */}
+            {/* the cut — hatched like a removed region in the real editor */}
+            <div
+              className="absolute inset-y-1 left-[38%] w-[8%]"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(155,147,133,0.25) 4px, rgba(155,147,133,0.25) 5px)",
+              }}
+            />
             <div className="absolute inset-y-0 left-[38%] flex w-[8%] items-center justify-center text-red">
               <Scissors className="size-3.5" />
             </div>
-            {/* playhead */}
+            {/* playhead — plays the kept segments and jumps the cut, like real
+                playback, then holds a beat before looping */}
             <motion.span
               className="absolute inset-y-0 w-px bg-red"
               initial={{ left: "2%" }}
-              animate={reduce ? { left: "30%" } : { left: ["2%", "98%"] }}
+              animate={
+                reduce
+                  ? { left: "30%" }
+                  : { left: ["2%", "37%", "47%", "97%", "97%"] }
+              }
               transition={
                 reduce
                   ? undefined
-                  : { duration: 4, repeat: Infinity, ease: "linear" }
+                  : {
+                      duration: 4.5,
+                      times: [0, 0.42, 0.45, 0.94, 1],
+                      repeat: Infinity,
+                      ease: "linear",
+                    }
               }
             >
-              <span className="absolute -top-1 -left-1 size-2 rounded-full bg-red" />
+              <span className="absolute -top-1 -left-1 size-2 rounded-full bg-red shadow-[0_0_8px_var(--glow)]" />
             </motion.span>
-          </div>
+          </motion.div>
 
           {/* Download chip */}
-          <div className="flex items-center justify-between">
+          <motion.div className="flex items-center justify-between" {...enter(3)}>
             <span className="font-mono text-xs text-muted-foreground">
               MP4 · stays on your device
             </span>
+            {/* pulses once when the playhead finishes its pass (same clock) */}
             <motion.span
               className="inline-flex items-center gap-1.5 rounded-full bg-red px-3 py-1.5 text-xs font-bold text-red-foreground"
-              animate={reduce ? {} : { y: [0, -2, 0] }}
+              animate={reduce ? {} : { scale: [1, 1, 1.08, 1] }}
               transition={
                 reduce
                   ? undefined
-                  : { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
+                  : {
+                      duration: 4.5,
+                      times: [0, 0.94, 0.97, 1],
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }
               }
             >
               <Download className="size-3.5" />
               Download
             </motion.span>
-          </div>
+          </motion.div>
         </div>
       </div>
     </motion.div>
