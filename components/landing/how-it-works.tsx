@@ -21,7 +21,7 @@ const steps = [
 
 // Each step's choreography starts this many seconds after the previous one,
 // so the row plays 01 → 02 → 03 like a timeline.
-const STEP_BEAT = 0.75;
+const STEP_BEAT = 0.5;
 
 function Step({
   index,
@@ -73,7 +73,7 @@ function Step({
               initial={reduce ? { width: "100%" } : { width: "0%" }}
               whileInView={{ width: "100%" }}
               viewport={{ once: true }}
-              transition={{ delay: d + 0.25, duration: 0.5, ease: "easeInOut" }}
+              transition={{ delay: d + 0.2, duration: 0.4, ease: "easeInOut" }}
             />
           </span>
         )}

@@ -84,7 +84,7 @@ function PickVisual({ delay }: { delay: number }) {
                   initial={reduce ? undefined : { opacity: 0 }}
                   whileInView={{ opacity: 1 }}
                   viewport={{ once: true }}
-                  transition={{ delay: delay + 0.8, duration: 0.3 }}
+                  transition={{ delay: delay + 0.55, duration: 0.3 }}
                 />
                 <motion.span
                   className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-red text-red-foreground"
@@ -92,7 +92,7 @@ function PickVisual({ delay }: { delay: number }) {
                   whileInView={{ scale: 1 }}
                   viewport={{ once: true }}
                   transition={{
-                    delay: delay + 0.9,
+                    delay: delay + 0.65,
                     type: "spring",
                     stiffness: 400,
                     damping: 18,
@@ -164,7 +164,7 @@ function RecordVisual({ delay }: { delay: number }) {
           initial={reduce ? undefined : { opacity: 0, y: -4 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ delay: delay + 0.45, duration: 0.4, ease: EASE }}
+          transition={{ delay: delay + 0.35, duration: 0.4, ease: EASE }}
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2 py-1">
             <span className="record-dot record-dot--live size-1.5" aria-hidden />
@@ -195,8 +195,8 @@ function RecordVisual({ delay }: { delay: number }) {
                 whileInView={{ scaleX: 1 }}
                 viewport={{ once: true }}
                 transition={{
-                  delay: delay + 0.6 + i * 0.3,
-                  duration: 0.5,
+                  delay: delay + 0.45 + i * 0.22,
+                  duration: 0.45,
                   ease: EASE,
                 }}
               />
@@ -235,7 +235,7 @@ function TrimVisual({ delay }: { delay: number }) {
             initial={reduce ? undefined : { opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            transition={{ delay: delay + 1.3, duration: 0.3 }}
+            transition={{ delay: delay + 0.95, duration: 0.3 }}
           />
           <motion.div
             className="absolute inset-y-1 rounded bg-red/10 ring-1 ring-red/40"
@@ -243,7 +243,7 @@ function TrimVisual({ delay }: { delay: number }) {
             initial={reduce ? undefined : { opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            transition={{ delay: delay + 1.3, duration: 0.3 }}
+            transition={{ delay: delay + 0.95, duration: 0.3 }}
           />
 
           {/* the removed middle */}
@@ -256,7 +256,7 @@ function TrimVisual({ delay }: { delay: number }) {
             initial={reduce ? undefined : { opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            transition={{ delay: delay + 1.3, duration: 0.35 }}
+            transition={{ delay: delay + 0.95, duration: 0.35 }}
           />
           <motion.span
             className="absolute top-1/2 left-[47.5%] -translate-x-1/2 -translate-y-1/2 text-red"
@@ -264,7 +264,7 @@ function TrimVisual({ delay }: { delay: number }) {
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
             transition={{
-              delay: delay + 1.0,
+              delay: delay + 0.75,
               type: "spring",
               stiffness: 320,
               damping: 18,
@@ -279,7 +279,7 @@ function TrimVisual({ delay }: { delay: number }) {
             initial={reduce ? { left: "40%" } : { left: "3%" }}
             whileInView={{ left: "40%" }}
             viewport={{ once: true }}
-            transition={{ delay: delay + 0.2, duration: 0.9, ease: "easeInOut" }}
+            transition={{ delay: delay + 0.15, duration: 0.65, ease: "easeInOut" }}
           >
             <span className="absolute -top-1 -left-1 size-2 rounded-full bg-red" />
           </motion.span>
@@ -291,7 +291,7 @@ function TrimVisual({ delay }: { delay: number }) {
             initial={reduce ? undefined : { opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            transition={{ delay: delay + 1.5, duration: 0.3 }}
+            transition={{ delay: delay + 1.15, duration: 0.3 }}
           >
             clip 00:11 · lossless
           </motion.span>
@@ -302,7 +302,7 @@ function TrimVisual({ delay }: { delay: number }) {
               reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: [1, 1.07, 1] }
             }
             viewport={{ once: true }}
-            transition={{ delay: delay + 1.6, duration: 0.5, ease: EASE }}
+            transition={{ delay: delay + 1.25, duration: 0.5, ease: EASE }}
           >
             <Download className="size-3.5" />
             Download
