@@ -23,27 +23,39 @@ export interface Recording {
   durationMs: number;
 }
 
-export type Resolution = "auto" | "1080p" | "720p";
+export type Resolution = "auto" | "1440p" | "1080p" | "720p";
+export type Quality = "standard" | "high" | "max";
 
 export interface StartOptions {
   /** Capture the microphone and mix it with system audio. */
   mic?: boolean;
   /** Composite a webcam bubble into the corner of the recording. */
   camera?: boolean;
+  /** Prefer a specific webcam (deviceId), falling back gracefully. */
+  cameraDeviceId?: string | null;
   /** How the webcam bubble is placed and shaped. */
   cameraLayout?: CameraLayout;
   /** Cap the capture resolution ("auto" = native). */
   resolution?: Resolution;
   /** Target frame rate. */
   fps?: number;
+  /** Encoder bits-per-pixel tier (default "high"). */
+  quality?: Quality;
   /** Seconds of 3·2·1 countdown after the screen is picked (default 3). */
   countdown?: number;
 }
 
 const RESOLUTION_CAPS: Record<Resolution, { w: number; h: number } | null> = {
   auto: null,
+  "1440p": { w: 2560, h: 1440 },
   "1080p": { w: 1920, h: 1080 },
   "720p": { w: 1280, h: 720 },
+};
+
+const QUALITY_BPP: Record<Quality, number> = {
+  standard: 0.12,
+  high: 0.2,
+  max: 0.3,
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -243,12 +255,20 @@ export function useScreenRecorder(): UseScreenRecorder {
         }
       }
 
-      // Optional webcam for the picture-in-picture bubble.
+      // Optional webcam for the picture-in-picture bubble. The device is a
+      // soft preference (ideal) so an unplugged camera falls back gracefully.
       let cam: MediaStream | null = null;
       if (options?.camera) {
+        const camConstraints: MediaTrackConstraints = {
+          width: 1280,
+          height: 720,
+        };
+        if (options.cameraDeviceId) {
+          camConstraints.deviceId = { ideal: options.cameraDeviceId };
+        }
         try {
           cam = await navigator.mediaDevices.getUserMedia({
-            video: { width: 1280, height: 720 },
+            video: camConstraints,
           });
         } catch {
           cam = null;
@@ -319,11 +339,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       const settings = display.getVideoTracks()[0]?.getSettings();
       const pixels = (settings?.width ?? 1920) * (settings?.height ?? 1080);
       const fps = settings?.frameRate ?? 30;
-      // Generous bits-per-pixel for crisp screen/text; caps high so 1440p/4K
-      // aren't starved. Bigger files, better quality.
+      // Bits-per-pixel by quality tier; caps high so 1440p/4K aren't starved.
+      const bpp = QUALITY_BPP[options?.quality ?? "high"];
       const videoBitsPerSecond = Math.min(
-        80_000_000,
-        Math.max(8_000_000, Math.round(pixels * fps * 0.2)),
+        100_000_000,
+        Math.max(8_000_000, Math.round(pixels * fps * bpp)),
       );
 
       const recordStream = new MediaStream([...videoTracks, ...audioTracks]);

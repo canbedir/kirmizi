@@ -1,6 +1,7 @@
 "use client";
 
 import { Camera, Loader2, Mic, Volume2 } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -30,33 +31,52 @@ export function IdleControls({
   settings,
   onSettingsChange,
 }: IdleControlsProps) {
+  const reduce = useReducedMotion();
+
   return (
     <div className="flex flex-col items-center gap-10 text-center">
-      <div className="flex flex-col items-center gap-5">
+      <div className="flex flex-col items-center gap-2">
+        {/* One clickable unit: the ring, the dot, and the label together. */}
         <button
           type="button"
           onClick={onStart}
           disabled={acquiring}
-          aria-label="Start recording"
-          className="group grid size-28 place-items-center rounded-full border-2 border-red/40 outline-none transition-all duration-300 hover:border-red focus-visible:ring-4 focus-visible:ring-red/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="group flex flex-col items-center gap-5 rounded-2xl p-3 outline-none focus-visible:ring-2 focus-visible:ring-red/40 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {acquiring ? (
-            <Loader2 className="size-8 animate-spin text-red" />
-          ) : (
-            <span className="size-12 rounded-full bg-red shadow-[0_0_30px_var(--glow)] transition-transform duration-300 group-hover:scale-110" />
-          )}
+          <span className="relative grid size-28 place-items-center">
+            {/* Slow breathing glow — the button is alive before it's pressed. */}
+            <motion.span
+              aria-hidden
+              className="absolute inset-0 rounded-full bg-red/20 blur-xl"
+              animate={
+                reduce || acquiring
+                  ? { opacity: 0.4 }
+                  : { opacity: [0.3, 0.7, 0.3], scale: [1, 1.15, 1] }
+              }
+              transition={
+                reduce || acquiring
+                  ? undefined
+                  : { duration: 3, repeat: Infinity, ease: "easeInOut" }
+              }
+            />
+            <span className="absolute inset-0 rounded-full border-2 border-red/40 transition-colors duration-300 group-hover:border-red" />
+            {acquiring ? (
+              <Loader2 className="size-8 animate-spin text-red" />
+            ) : (
+              <span className="size-12 rounded-full bg-red shadow-[0_0_30px_var(--glow)] transition-transform duration-300 group-hover:scale-110 group-active:scale-95" />
+            )}
+          </span>
+
+          <span className="font-bold text-3xl leading-tight">
+            {acquiring ? "Pick a screen to share" : "Start recording"}
+          </span>
         </button>
 
-        <div className="space-y-1">
-          <p className="font-bold text-3xl leading-tight">
-            {acquiring ? "Pick a screen to share" : "Start recording"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {acquiring
-              ? "Choose a screen, window, or tab in the browser prompt."
-              : "Your screen, captured entirely on this device."}
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {acquiring
+            ? "Choose a screen, window, or tab in the browser prompt."
+            : "Your screen, captured entirely on this device."}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2">

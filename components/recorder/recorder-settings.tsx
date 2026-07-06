@@ -9,7 +9,7 @@ import {
 } from "react";
 import { CameraOff, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { Resolution } from "@/lib/use-screen-recorder";
+import type { Quality, Resolution } from "@/lib/use-screen-recorder";
 import type { CameraShape } from "@/lib/camera-composite";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -24,7 +24,9 @@ import {
 export interface RecorderSettings {
   resolution: Resolution;
   fps: number;
+  quality: Quality;
   countdown: number;
+  camDeviceId: string | null;
   camX: number;
   camY: number;
   camSize: number;
@@ -37,7 +39,9 @@ export interface RecorderSettings {
 export const DEFAULT_SETTINGS: RecorderSettings = {
   resolution: "auto",
   fps: 30,
+  quality: "high",
   countdown: 3,
+  camDeviceId: null,
   camX: 0.84,
   camY: 0.8,
   camSize: 0.22,
@@ -45,6 +49,28 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   camMirror: true,
   camBorderColor: null,
   camBorderWidth: 0.006,
+};
+
+/** The camera-bubble subset of the defaults, for the dialog's reset action. */
+export const DEFAULT_CAMERA_SETTINGS: Pick<
+  RecorderSettings,
+  | "camDeviceId"
+  | "camX"
+  | "camY"
+  | "camSize"
+  | "camShape"
+  | "camMirror"
+  | "camBorderColor"
+  | "camBorderWidth"
+> = {
+  camDeviceId: DEFAULT_SETTINGS.camDeviceId,
+  camX: DEFAULT_SETTINGS.camX,
+  camY: DEFAULT_SETTINGS.camY,
+  camSize: DEFAULT_SETTINGS.camSize,
+  camShape: DEFAULT_SETTINGS.camShape,
+  camMirror: DEFAULT_SETTINGS.camMirror,
+  camBorderColor: DEFAULT_SETTINGS.camBorderColor,
+  camBorderWidth: DEFAULT_SETTINGS.camBorderWidth,
 };
 
 // --- persistence -----------------------------------------------------------
@@ -153,9 +179,11 @@ function Row({
 function CameraPreview({
   settings,
   onChange,
+  onDevices,
 }: {
   settings: RecorderSettings;
   onChange: (patch: Partial<RecorderSettings>) => void;
+  onDevices?: (devices: MediaDeviceInfo[]) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -176,8 +204,12 @@ function CameraPreview({
   useEffect(() => {
     let stream: MediaStream | null = null;
     let cancelled = false;
+    const constraints: MediaTrackConstraints = { width: 640, height: 480 };
+    if (settings.camDeviceId) {
+      constraints.deviceId = { ideal: settings.camDeviceId };
+    }
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480 } })
+      .getUserMedia({ video: constraints })
       .then((s) => {
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
@@ -189,13 +221,25 @@ function CameraPreview({
           videoRef.current.play().catch(() => {});
         }
         setReady(true);
+        // Labels are only populated once permission is granted, so list the
+        // available cameras now.
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((all) => {
+            if (!cancelled) {
+              onDevices?.(all.filter((d) => d.kind === "videoinput"));
+            }
+          })
+          .catch(() => {});
       })
       .catch(() => setReady(false));
     return () => {
       cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+    // onDevices is a state setter from the dialog; stable across renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.camDeviceId]);
 
   const diameter = settings.camSize * dims.h;
   const halfX = dims.w ? diameter / 2 / dims.w : 0;
@@ -280,9 +324,10 @@ export function RecorderSettings({
           value={settings.resolution}
           onChange={(resolution) => onChange({ resolution })}
           options={[
-            { value: "auto", label: "Auto" },
-            { value: "1080p", label: "1080p" },
             { value: "720p", label: "720p" },
+            { value: "1080p", label: "1080p" },
+            { value: "1440p", label: "1440p" },
+            { value: "auto", label: "Auto" },
           ]}
         />
       </Row>
@@ -293,6 +338,17 @@ export function RecorderSettings({
           options={[
             { value: 30, label: "30" },
             { value: 60, label: "60" },
+          ]}
+        />
+      </Row>
+      <Row label="Quality">
+        <Segmented
+          value={settings.quality}
+          onChange={(quality) => onChange({ quality })}
+          options={[
+            { value: "standard", label: "Standard" },
+            { value: "high", label: "High" },
+            { value: "max", label: "Max" },
           ]}
         />
       </Row>
@@ -321,6 +377,8 @@ export function CameraSettingsDialog({
   onChange: (patch: Partial<RecorderSettings>) => void;
   disabled?: boolean;
 }) {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+
   return (
     <Dialog>
       <DialogTrigger
@@ -339,9 +397,31 @@ export function CameraSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <CameraPreview settings={settings} onChange={onChange} />
+        <CameraPreview
+          settings={settings}
+          onChange={onChange}
+          onDevices={setDevices}
+        />
 
         <div className="space-y-3.5">
+          {devices.length > 1 && (
+            <Row label="Camera">
+              <select
+                value={settings.camDeviceId ?? ""}
+                onChange={(e) =>
+                  onChange({ camDeviceId: e.target.value || null })
+                }
+                className="max-w-52 truncate rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-red/40"
+              >
+                <option value="">Default</option>
+                {devices.map((device, i) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          )}
           <Row label="Size">
             <div className="w-40">
               <Slider
@@ -418,6 +498,16 @@ export function CameraSettingsDialog({
               />
             </Row>
           )}
+
+          <div className="flex justify-end border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => onChange({ ...DEFAULT_CAMERA_SETTINGS })}
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Reset to defaults
+            </button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

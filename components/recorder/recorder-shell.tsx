@@ -113,8 +113,10 @@ export function RecorderShell() {
       start({
         mic: micEnabled,
         camera: cameraEnabled,
+        cameraDeviceId: settings.camDeviceId,
         resolution: settings.resolution,
         fps: settings.fps,
+        quality: settings.quality,
         countdown: settings.countdown,
         cameraLayout: {
           x: settings.camX,
