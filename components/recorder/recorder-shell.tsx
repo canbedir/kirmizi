@@ -25,11 +25,14 @@ function fileExt(mimeType: string): string {
 export function RecorderShell() {
   const support = useMediaSupport();
   const recorder = useScreenRecorder();
-  const [micEnabled, setMicEnabled] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(false);
   const [settings, patchSettings] = useRecorderSettings();
   const { items: recents, save, remove } = useRecentRecordings();
   const [viewing, setViewing] = useState<Recording | null>(null);
+
+  // The mic/camera toggles live in the persisted settings so a setup carries
+  // over between visits.
+  const micEnabled = settings.micEnabled;
+  const cameraEnabled = settings.cameraEnabled;
 
   const {
     status,
@@ -216,9 +219,9 @@ export function RecorderShell() {
               onStart={startRecording}
               acquiring={status === "acquiring"}
               micEnabled={micEnabled}
-              onMicChange={setMicEnabled}
+              onMicChange={(v) => patchSettings({ micEnabled: v })}
               cameraEnabled={cameraEnabled}
-              onCameraChange={setCameraEnabled}
+              onCameraChange={(v) => patchSettings({ cameraEnabled: v })}
               settings={settings}
               onSettingsChange={patchSettings}
             />

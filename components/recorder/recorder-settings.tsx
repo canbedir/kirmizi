@@ -24,6 +24,10 @@ import {
 } from "@/components/ui/dialog";
 
 export interface RecorderSettings {
+  /** Whether the mic capture toggle is on (remembered between sessions). */
+  micEnabled: boolean;
+  /** Whether the webcam-bubble toggle is on (remembered between sessions). */
+  cameraEnabled: boolean;
   resolution: Resolution;
   fps: number;
   quality: Quality;
@@ -40,6 +44,8 @@ export interface RecorderSettings {
 }
 
 export const DEFAULT_SETTINGS: RecorderSettings = {
+  micEnabled: false,
+  cameraEnabled: false,
   resolution: "auto",
   fps: 30,
   quality: "high",
