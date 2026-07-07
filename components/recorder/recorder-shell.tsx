@@ -114,6 +114,7 @@ export function RecorderShell() {
     () =>
       start({
         mic: micEnabled,
+        micDeviceId: settings.micDeviceId,
         camera: cameraEnabled,
         cameraDeviceId: settings.camDeviceId,
         resolution: settings.resolution,

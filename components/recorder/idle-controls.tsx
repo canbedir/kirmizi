@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { Switch } from "@/components/ui/switch";
 import {
   CameraSettingsDialog,
+  MicSettingsDialog,
   RecorderSettings,
   type RecorderSettings as RecorderSettingsType,
 } from "@/components/recorder/recorder-settings";
@@ -80,23 +81,32 @@ export function IdleControls({
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <label
+        <div
           className={cn(
-            "inline-flex cursor-pointer items-center gap-2.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
+            "inline-flex items-center gap-2.5 rounded-full border py-2 pr-2 pl-3.5 text-sm transition-colors",
             micEnabled
               ? "border-red/30 bg-red/10 text-foreground"
               : "border-border text-muted-foreground",
           )}
         >
-          <Mic className="size-4" />
-          Microphone
-          <Switch
-            checked={micEnabled}
-            onCheckedChange={onMicChange}
-            disabled={acquiring}
-            aria-label="Record microphone"
+          <label className="inline-flex cursor-pointer items-center gap-2.5">
+            <Mic className="size-4" />
+            Microphone
+            <Switch
+              checked={micEnabled}
+              onCheckedChange={onMicChange}
+              disabled={acquiring}
+              aria-label="Record microphone"
+            />
+          </label>
+          {/* Always rendered so toggling the mic doesn't resize the pill. */}
+          <span className="h-4 w-px bg-border" aria-hidden />
+          <MicSettingsDialog
+            settings={settings}
+            onChange={onSettingsChange}
+            disabled={!micEnabled || acquiring}
           />
-        </label>
+        </div>
 
         <span className="inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-2 text-sm text-muted-foreground">
           <Volume2 className="size-4" />

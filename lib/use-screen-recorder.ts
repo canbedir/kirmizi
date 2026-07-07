@@ -29,6 +29,8 @@ export type Quality = "standard" | "high" | "max";
 export interface StartOptions {
   /** Capture the microphone and mix it with system audio. */
   mic?: boolean;
+  /** Prefer a specific microphone (deviceId), falling back gracefully. */
+  micDeviceId?: string | null;
   /** Composite a webcam bubble into the corner of the recording. */
   camera?: boolean;
   /** Prefer a specific webcam (deviceId), falling back gracefully. */
@@ -274,9 +276,16 @@ export function useScreenRecorder(): UseScreenRecorder {
       // Optional microphone — never fail the whole recording if it's denied.
       let mic: MediaStream | null = null;
       if (options?.mic) {
+        const micConstraints: MediaTrackConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+        };
+        if (options.micDeviceId) {
+          micConstraints.deviceId = { ideal: options.micDeviceId };
+        }
         try {
           mic = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true },
+            audio: micConstraints,
           });
         } catch {
           mic = null;

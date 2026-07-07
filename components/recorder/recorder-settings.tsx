@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { CameraOff, SlidersHorizontal } from "lucide-react";
+import { CameraOff, MicOff, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Quality, Resolution } from "@/lib/use-screen-recorder";
 import type { CameraShape } from "@/lib/camera-composite";
@@ -26,6 +26,7 @@ export interface RecorderSettings {
   fps: number;
   quality: Quality;
   countdown: number;
+  micDeviceId: string | null;
   camDeviceId: string | null;
   camX: number;
   camY: number;
@@ -41,6 +42,7 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   fps: 30,
   quality: "high",
   countdown: 3,
+  micDeviceId: null,
   camDeviceId: null,
   camX: 0.84,
   camY: 0.8,
@@ -509,6 +511,177 @@ export function CameraSettingsDialog({
             </button>
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Live input-level meter for the selected microphone. */
+function MicMeter({
+  deviceId,
+  onDevices,
+}: {
+  deviceId: string | null;
+  onDevices?: (devices: MediaDeviceInfo[]) => void;
+}) {
+  const [level, setLevel] = useState(0);
+  const [ready, setReady] = useState(true);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    let raf = 0;
+    let cancelled = false;
+
+    const constraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+    };
+    if (deviceId) constraints.deviceId = { ideal: deviceId };
+
+    navigator.mediaDevices
+      .getUserMedia({ audio: constraints })
+      .then((s) => {
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        setReady(true);
+
+        const AudioCtx: typeof AudioContext =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
+        ctx = new AudioCtx();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        ctx.createMediaStreamSource(s).connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+
+        const tick = () => {
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          // RMS, boosted so normal speech fills most of the bar.
+          setLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.5));
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+
+        // Labels are only populated once permission is granted.
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((all) => {
+            if (!cancelled) {
+              onDevices?.(all.filter((d) => d.kind === "audioinput"));
+            }
+          })
+          .catch(() => {});
+      })
+      .catch(() => setReady(false));
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      ctx?.close().catch(() => {});
+    };
+    // onDevices is a state setter from the dialog; stable across renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  const SEGMENTS = 20;
+  const lit = Math.round(level * SEGMENTS);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex h-9 items-center gap-1 rounded-lg border border-border bg-background/50 px-3">
+        {!ready ? (
+          <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <MicOff className="size-3.5" />
+            Microphone unavailable — check permissions.
+          </span>
+        ) : (
+          Array.from({ length: SEGMENTS }).map((_, i) => (
+            <span
+              key={i}
+              className={cn(
+                "h-3 flex-1 rounded-full transition-colors duration-75",
+                i < lit
+                  ? i >= SEGMENTS - 4
+                    ? "bg-red-hover"
+                    : "bg-red"
+                  : "bg-muted-foreground/15",
+              )}
+            />
+          ))
+        )}
+      </div>
+      {ready && (
+        <p className="text-xs text-muted-foreground">
+          Say something — the bar should move.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Modal for the microphone — a live level check and device picker. */
+export function MicSettingsDialog({
+  settings,
+  onChange,
+  disabled,
+}: {
+  settings: RecorderSettings;
+  onChange: (patch: Partial<RecorderSettings>) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        disabled={disabled}
+        aria-label="Microphone settings"
+        title="Microphone settings"
+        className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-red/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <SlidersHorizontal className="size-4" />
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Microphone</DialogTitle>
+          <DialogDescription>
+            Check your levels before you record.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Only hold the mic open while the dialog is — release it on close. */}
+        {open && (
+          <MicMeter deviceId={settings.micDeviceId} onDevices={setDevices} />
+        )}
+
+        {devices.length > 1 && (
+          <Row label="Microphone">
+            <select
+              value={settings.micDeviceId ?? ""}
+              onChange={(e) => onChange({ micDeviceId: e.target.value || null })}
+              className="max-w-52 truncate rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-red/40"
+            >
+              <option value="">Default</option>
+              {devices.map((device, i) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Microphone ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
       </DialogContent>
     </Dialog>
   );
