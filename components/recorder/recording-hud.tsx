@@ -6,6 +6,23 @@ import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 
+/**
+ * A label that never changes width as it toggles: the longer of the two states
+ * is laid out invisibly to reserve space, and the active label is stacked on
+ * top of it. Keeps the button from growing/shrinking mid-recording.
+ */
+function ToggleLabel({ active, options }: { active: string; options: [string, string] }) {
+  const widest = options[0].length >= options[1].length ? options[0] : options[1];
+  return (
+    <span className="grid place-items-center">
+      <span aria-hidden className="col-start-1 row-start-1 invisible">
+        {widest}
+      </span>
+      <span className="col-start-1 row-start-1">{active}</span>
+    </span>
+  );
+}
+
 interface RecordingHudProps {
   elapsedMs: number;
   onStop: () => void;
@@ -83,8 +100,10 @@ export function RecordingHud({
             size="lg"
             onClick={onToggleMic}
             aria-pressed={micMuted}
+            aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+            title={micMuted ? "Mic muted" : "Mic on"}
             className={cn(
-              "h-12 gap-2 rounded-full px-5 text-base",
+              "size-12 rounded-full",
               micMuted && "border-red/30 bg-red/10 text-red",
             )}
           >
@@ -93,7 +112,6 @@ export function RecordingHud({
             ) : (
               <Mic className="size-4" />
             )}
-            {micMuted ? "Mic muted" : "Mic on"}
           </Button>
         )}
 
@@ -112,7 +130,7 @@ export function RecordingHud({
           ) : (
             <Pause className="size-4 fill-current" />
           )}
-          {paused ? "Resume" : "Pause"}
+          <ToggleLabel active={paused ? "Resume" : "Pause"} options={["Resume", "Pause"]} />
         </Button>
 
         <Button
