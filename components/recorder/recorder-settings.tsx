@@ -3,10 +3,12 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { CameraOff, MicOff, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Quality, Resolution } from "@/lib/use-screen-recorder";
@@ -141,23 +143,42 @@ function Segmented<T extends Primitive>({
   onChange: (value: T) => void;
   options: { value: T; label: string }[];
 }) {
+  const reduce = useReducedMotion();
+  // Unique per instance so the sliding pill never jumps between two selectors.
+  const layoutId = useId();
+
   return (
     <div className="inline-flex rounded-lg border border-border bg-background/50 p-0.5">
-      {options.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-sm transition-colors",
-            value === option.value
-              ? "bg-red/15 text-foreground ring-1 ring-red/30"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={String(option.value)}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "relative rounded-md px-2.5 py-1 text-sm transition-colors",
+              active
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {active && (
+              <motion.span
+                aria-hidden
+                layoutId={layoutId}
+                className="absolute inset-0 rounded-md bg-red/15 ring-1 ring-red/30"
+                transition={
+                  reduce
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 500, damping: 35 }
+                }
+              />
+            )}
+            <span className="relative z-10">{option.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
