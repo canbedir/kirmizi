@@ -38,6 +38,8 @@ export function RecorderShell() {
     recording,
     previewStream,
     countdown,
+    paused,
+    togglePause,
     micActive,
     micMuted,
     toggleMicMuted,
@@ -151,6 +153,9 @@ export function RecorderShell() {
       } else if (status === "recording" && key === "s") {
         event.preventDefault();
         stop();
+      } else if (status === "recording" && event.key === " ") {
+        event.preventDefault();
+        togglePause();
       } else if (status === "countdown" && event.key === "Escape") {
         event.preventDefault();
         reset();
@@ -158,7 +163,7 @@ export function RecorderShell() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [blocked, viewing, status, startRecording, stop, reset]);
+  }, [blocked, viewing, status, startRecording, stop, togglePause, reset]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -195,6 +200,8 @@ export function RecorderShell() {
           <RecordingHud
             elapsedMs={elapsedMs}
             onStop={stop}
+            paused={paused}
+            onTogglePause={togglePause}
             micActive={micActive}
             micMuted={micMuted}
             onToggleMic={toggleMicMuted}

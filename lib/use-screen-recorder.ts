@@ -81,6 +81,9 @@ export interface UseScreenRecorder {
   /** The finished recording, available once status is "stopped". */
   recording: Recording | null;
   isRecording: boolean;
+  /** Encoding is paused (the capture stays live; nothing is written). */
+  paused: boolean;
+  togglePause: () => void;
   /** The stream being recorded (video + mixed audio), for a live preview. */
   previewStream: MediaStream | null;
   /** Current countdown value while status is "countdown" (else 0). */
@@ -104,8 +107,12 @@ export function useScreenRecorder(): UseScreenRecorder {
   const [micMuted, setMicMuted] = useState(false);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [countdown, setCountdown] = useState(0);
+  const [paused, setPaused] = useState(false);
   // Set when the user aborts (stop / reset / native stop) during the countdown.
   const startAbortedRef = useRef(false);
+  // Recorded time before the current running stretch (grows on each pause).
+  const accumulatedRef = useRef(0);
+  const pausedRef = useRef(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -160,6 +167,27 @@ export function useScreenRecorder(): UseScreenRecorder {
       cleanupCapture();
     }
   }, [clearTimer, cleanupCapture]);
+
+  const togglePause = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    if (recorder.state === "recording") {
+      recorder.pause();
+      clearTimer();
+      accumulatedRef.current += Date.now() - startedAtRef.current;
+      setElapsedMs(accumulatedRef.current);
+      pausedRef.current = true;
+      setPaused(true);
+    } else if (recorder.state === "paused") {
+      recorder.resume();
+      startedAtRef.current = Date.now();
+      timerRef.current = window.setInterval(() => {
+        setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
+      }, 200);
+      pausedRef.current = false;
+      setPaused(false);
+    }
+  }, [clearTimer]);
 
   const toggleMicMuted = useCallback(() => {
     setMicMuted((prev) => {
@@ -378,12 +406,17 @@ export function useScreenRecorder(): UseScreenRecorder {
           blob,
           mimeType: type,
           size: blob.size,
-          durationMs: Date.now() - startedAtRef.current,
+          // Paused stretches don't count; the running one (if any) does.
+          durationMs:
+            accumulatedRef.current +
+            (pausedRef.current ? 0 : Date.now() - startedAtRef.current),
         };
         recordingRef.current = finished;
         setRecording(finished);
         setStatus("stopped");
         setMicActive(false);
+        pausedRef.current = false;
+        setPaused(false);
         setPreviewStream(null);
         cleanupCapture();
       };
@@ -412,12 +445,15 @@ export function useScreenRecorder(): UseScreenRecorder {
       }
 
       setElapsedMs(0);
+      accumulatedRef.current = 0;
+      pausedRef.current = false;
+      setPaused(false);
       startedAtRef.current = Date.now();
       setPreviewStream(recordStream);
       recorder.start();
       setStatus("recording");
       timerRef.current = window.setInterval(() => {
-        setElapsedMs(Date.now() - startedAtRef.current);
+        setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
       }, 200);
     },
     [clearTimer, cleanupCapture, revokeRecording, stop],
@@ -435,6 +471,9 @@ export function useScreenRecorder(): UseScreenRecorder {
     setError(null);
     setMicActive(false);
     setMicMuted(false);
+    accumulatedRef.current = 0;
+    pausedRef.current = false;
+    setPaused(false);
     setPreviewStream(null);
     setStatus("idle");
   }, [clearTimer, cleanupCapture, revokeRecording]);
@@ -454,6 +493,8 @@ export function useScreenRecorder(): UseScreenRecorder {
     elapsedMs,
     recording,
     isRecording: status === "recording",
+    paused,
+    togglePause,
     previewStream,
     countdown,
     micActive,

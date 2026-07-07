@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Mic, MicOff, Square } from "lucide-react";
+import { Mic, MicOff, Pause, Play, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 interface RecordingHudProps {
   elapsedMs: number;
   onStop: () => void;
+  paused: boolean;
+  onTogglePause: () => void;
   micActive: boolean;
   micMuted: boolean;
   onToggleMic: () => void;
@@ -18,6 +20,8 @@ interface RecordingHudProps {
 export function RecordingHud({
   elapsedMs,
   onStop,
+  paused,
+  onTogglePause,
   micActive,
   micMuted,
   onToggleMic,
@@ -52,15 +56,23 @@ export function RecordingHud({
           </div>
         )}
 
-        {/* Live timer badge */}
+        {/* Live timer badge — the dot only pulses while actually writing. */}
         <div
           className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 backdrop-blur-md"
           aria-live="polite"
         >
-          <span className="record-dot record-dot--live size-2.5" aria-hidden />
+          <span
+            className={cn("record-dot size-2.5", !paused && "record-dot--live")}
+            aria-hidden
+          />
           <span className="font-mono text-sm tabular-nums">
             {formatDuration(elapsedMs)}
           </span>
+          {paused && (
+            <span className="font-mono text-xs uppercase tracking-[0.15em] text-muted-foreground">
+              paused
+            </span>
+          )}
         </div>
       </div>
 
@@ -86,6 +98,24 @@ export function RecordingHud({
         )}
 
         <Button
+          variant="outline"
+          size="lg"
+          onClick={onTogglePause}
+          aria-pressed={paused}
+          className={cn(
+            "h-12 gap-2 rounded-full px-5 text-base",
+            paused && "border-red/30 bg-red/10 text-red",
+          )}
+        >
+          {paused ? (
+            <Play className="size-4 fill-current" />
+          ) : (
+            <Pause className="size-4 fill-current" />
+          )}
+          {paused ? "Resume" : "Pause"}
+        </Button>
+
+        <Button
           onClick={onStop}
           size="lg"
           className="h-12 gap-2 rounded-full bg-red px-7 text-base text-red-foreground hover:bg-red-hover"
@@ -96,8 +126,9 @@ export function RecordingHud({
       </div>
 
       <p className="font-mono text-xs text-muted-foreground/70">
-        Press <kbd className="rounded border border-border px-1.5 py-0.5">S</kbd>{" "}
-        to stop
+        <kbd className="rounded border border-border px-1.5 py-0.5">Space</kbd>{" "}
+        pause ·{" "}
+        <kbd className="rounded border border-border px-1.5 py-0.5">S</kbd> stop
       </p>
     </div>
   );
