@@ -169,6 +169,17 @@ export function RecorderShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [blocked, viewing, status, startRecording, stop, togglePause, reset]);
 
+  // A live recording is unrecoverable if the tab closes — ask first.
+  useEffect(() => {
+    if (status !== "recording") return;
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [status]);
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between px-6 py-5">

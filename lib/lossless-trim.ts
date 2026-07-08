@@ -11,6 +11,16 @@ export interface TrimSegment {
 // loaded lazily from a CDN on first use.
 const CORE_BASE = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
 
+// ffmpeg.wasm keeps the input and output files in its ~2 GB 32-bit memory at
+// the same time, so GB-scale recordings can't go through it — callers should
+// fall back to a direct download or a captureStream re-encode instead.
+const FFMPEG_MAX_INPUT_BYTES = 800 * 1024 * 1024;
+
+/** Whether this blob is small enough to process with ffmpeg.wasm. */
+export function canUseFFmpeg(source: Blob): boolean {
+  return source.size <= FFMPEG_MAX_INPUT_BYTES;
+}
+
 let instance: FFmpeg | null = null;
 let loadPromise: Promise<void> | null = null;
 let progressCb: ((fraction: number) => void) | null = null;

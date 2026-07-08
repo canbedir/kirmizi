@@ -119,7 +119,9 @@ export async function exportSegments(
     0,
   );
 
-  recorder.start();
+  // Flush chunks every second so long exports stream into blob storage
+  // instead of accumulating in the recorder's memory (see the capture hook).
+  recorder.start(1000);
   let elapsed = 0;
   for (const segment of segments) {
     gain.gain.value = segment.muted ? 0 : 1;

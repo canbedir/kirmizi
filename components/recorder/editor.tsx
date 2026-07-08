@@ -21,7 +21,7 @@ import type { Recording } from "@/lib/use-screen-recorder";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { SPEED_STEPS, useVideoEditor, type Segment } from "@/lib/use-video-editor";
 import { canExportVideo, exportSegments } from "@/lib/export-segments";
-import { losslessTrim, toCompatibleMp4 } from "@/lib/lossless-trim";
+import { canUseFFmpeg, losslessTrim, toCompatibleMp4 } from "@/lib/lossless-trim";
 import { generateThumbnails } from "@/lib/thumbnails";
 import { Button } from "@/components/ui/button";
 import { Timeline } from "@/components/recorder/timeline";
@@ -324,19 +324,28 @@ export function Editor({
     setPreparing(false);
     setProgress(0);
     try {
+      // GB-scale recordings don't fit in ffmpeg.wasm's memory — those skip
+      // the lossless/remux paths and fall back to a direct save or re-encode.
+      const ffmpegOk = canUseFFmpeg(recording.blob);
+
       // Full recording — mp4 needs its Opus audio remuxed to AAC so native
       // players get sound; webm is left as-is.
       if (!isEdited) {
-        if (isMp4) {
+        if (isMp4 && ffmpegOk) {
           finish(await toCompatibleMp4(recording.blob, ffCbs), fullName);
         } else {
           saveUrl(recording.url, fullName);
-          toast.success("Saved to your device");
+          toast.success("Saved to your device", {
+            description:
+              isMp4 && !ffmpegOk
+                ? "Too large to convert the audio here — if a player stays silent, try VLC."
+                : undefined,
+          });
         }
         return;
       }
 
-      if (cutOnly) {
+      if (cutOnly && ffmpegOk) {
         try {
           finish(
             await losslessTrim(
@@ -349,26 +358,12 @@ export function Editor({
           );
           return;
         } catch {
-          // Lossless trim failed — fall back to a re-encode where possible.
+          // Lossless trim failed — fall back to the re-encode below.
           setPreparing(false);
-          if (!canExportVideo()) {
-            saveUrl(recording.url, fullName);
-            toast.error("Couldn't trim here — saved the full recording.");
-            return;
-          }
-          let blob = await exportSegments(
-            recording.url,
-            editor.segments,
-            recording.mimeType,
-            setProgress,
-          );
-          if (isMp4) blob = await toCompatibleMp4(blob, ffCbs);
-          finish(blob, filename);
-          return;
         }
       }
 
-      // Speed / mute edits need a re-encode.
+      // Re-encode: speed/mute edits, oversized recordings, or a failed trim.
       if (!canExportVideo()) {
         saveUrl(recording.url, fullName);
         toast.error(
@@ -382,7 +377,7 @@ export function Editor({
         recording.mimeType,
         setProgress,
       );
-      if (isMp4) blob = await toCompatibleMp4(blob, ffCbs);
+      if (isMp4 && canUseFFmpeg(blob)) blob = await toCompatibleMp4(blob, ffCbs);
       finish(blob, filename);
     } catch (err) {
       toast.error(
