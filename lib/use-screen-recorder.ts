@@ -459,7 +459,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       setPaused(false);
       startedAtRef.current = Date.now();
       setPreviewStream(recordStream);
-      recorder.start();
+      // Flush a chunk every second. Without a timeslice the recorder buffers
+      // the entire session in memory and materializes it all at once on stop —
+      // long recordings (GBs at our bitrates) freeze the tab. Periodic chunks
+      // land in the browser's blob storage, which can spill to disk.
+      recorder.start(1000);
       setStatus("recording");
       timerRef.current = window.setInterval(() => {
         setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));

@@ -24,14 +24,16 @@ export function useRecentRecordings() {
 
   const save = useCallback(
     (rec: NewRecording) => {
-      saveRecording(rec).then(refresh);
+      // Best-effort: a huge recording can blow the storage quota — the user
+      // still has the in-memory recording either way.
+      saveRecording(rec).then(refresh).catch(() => {});
     },
     [refresh],
   );
 
   const remove = useCallback(
     (id: string) => {
-      deleteRecording(id).then(refresh);
+      deleteRecording(id).then(refresh).catch(() => {});
     },
     [refresh],
   );
