@@ -1,9 +1,12 @@
 "use client";
 
 // The "scene" is everything drawn around and on top of the raw recording:
-// a styled frame (background, padding, rounded corners, shadow) and timed
-// zoom regions. One model drives both the CSS preview in the editor and the
-// canvas renderer used at export, so what you see is what you save.
+// a styled frame (background, padding, rounded corners, shadow), timed zoom
+// regions, and the webcam bubble. One model drives both the CSS preview in
+// the editor and the canvas renderer used at export, so what you see is what
+// you save.
+
+import type { CameraLayout } from "@/lib/camera-layout";
 
 export interface FrameStyle {
   /** Background preset id (see BACKGROUNDS); "none" means the raw video. */
@@ -190,6 +193,34 @@ export function videoRect(
 /** Corner radius in frame pixels for a given video rect. */
 export function radiusPx(style: FrameStyle, rect: Rect): number {
   return clamp(style.radius, 0, 0.3) * Math.min(rect.w, rect.h);
+}
+
+/** The webcam bubble's geometry, in frame pixels, inside a video rect. */
+export interface CameraGeometry {
+  /** Bubble centre. */
+  cx: number;
+  cy: number;
+  /** Bubble diameter. */
+  d: number;
+  /** Corner radius of the bubble's clip path. */
+  radius: number;
+  /** Border stroke width (0 when borderless). */
+  borderW: number;
+}
+
+export function cameraGeometry(
+  layout: CameraLayout,
+  rect: Rect,
+): CameraGeometry {
+  const d = clamp(layout.size, 0.08, 0.5) * rect.h;
+  const half = d / 2;
+  const cx = rect.x + clamp(layout.x * rect.w, half, rect.w - half);
+  const cy = rect.y + clamp(layout.y * rect.h, half, rect.h - half);
+  const radius = layout.shape === "circle" ? half : d * 0.2;
+  const borderW = layout.borderColor
+    ? Math.max(1, layout.borderWidth * rect.h)
+    : 0;
+  return { cx, cy, d, radius, borderW };
 }
 
 /* ---------------------------------------------------------------- */

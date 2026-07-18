@@ -12,7 +12,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { CameraOff, MicOff, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Quality, Resolution } from "@/lib/use-screen-recorder";
-import type { CameraShape } from "@/lib/camera-composite";
+import type { CameraShape } from "@/lib/camera-layout";
 import { Slider } from "@/components/ui/slider";
 import {
   Dialog,

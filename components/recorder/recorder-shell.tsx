@@ -5,7 +5,11 @@ import { RotateCcw, TriangleAlert } from "lucide-react";
 import { useScreenRecorder, type Recording } from "@/lib/use-screen-recorder";
 import { useMediaSupport } from "@/lib/use-media-support";
 import { useRecentRecordings } from "@/lib/use-recent-recordings";
-import { getRecordingBlob } from "@/lib/recordings-store";
+import {
+  getRecordingBlob,
+  getRecordingCameraBlob,
+} from "@/lib/recordings-store";
+import { DEFAULT_CAMERA_LAYOUT } from "@/lib/camera-layout";
 import { captureCover } from "@/lib/capture-cover";
 import { Wordmark } from "@/components/wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -40,6 +44,7 @@ export function RecorderShell() {
     elapsedMs,
     recording,
     previewStream,
+    cameraPreviewStream,
     countdown,
     paused,
     togglePause,
@@ -66,6 +71,13 @@ export function RecorderShell() {
         size: recording.size,
         durationMs: recording.durationMs,
         cover,
+        camera: recording.camera
+          ? {
+              blob: recording.camera.blob,
+              mimeType: recording.camera.mimeType,
+              layout: recording.camera.layout,
+            }
+          : null,
       });
     });
     return () => {
@@ -78,12 +90,23 @@ export function RecorderShell() {
       const blob = await getRecordingBlob(id);
       if (!blob) return;
       const meta = recents.find((r) => r.id === id);
+      const camBlob = meta?.cameraMimeType
+        ? await getRecordingCameraBlob(id)
+        : null;
       setViewing({
         url: URL.createObjectURL(blob),
         blob,
         mimeType: meta?.mimeType ?? blob.type,
         size: blob.size,
         durationMs: meta?.durationMs ?? 0,
+        camera: camBlob
+          ? {
+              url: URL.createObjectURL(camBlob),
+              blob: camBlob,
+              mimeType: meta?.cameraMimeType ?? camBlob.type,
+              layout: meta?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
+            }
+          : null,
       });
     },
     [recents],
@@ -91,7 +114,10 @@ export function RecorderShell() {
 
   const closeViewing = useCallback(() => {
     setViewing((current) => {
-      if (current) URL.revokeObjectURL(current.url);
+      if (current) {
+        URL.revokeObjectURL(current.url);
+        if (current.camera) URL.revokeObjectURL(current.camera.url);
+      }
       return null;
     });
   }, []);
@@ -221,7 +247,18 @@ export function RecorderShell() {
             micMuted={micMuted}
             onToggleMic={toggleMicMuted}
             previewStream={previewStream}
+            cameraStream={cameraPreviewStream}
+            cameraLayout={{
+              x: settings.camX,
+              y: settings.camY,
+              size: settings.camSize,
+              shape: settings.camShape,
+              mirror: settings.camMirror,
+              borderColor: settings.camBorderColor,
+              borderWidth: settings.camBorderWidth,
+            }}
           />
+
         ) : status === "stopped" && recording ? (
           <Editor recording={recording} onReset={reset} />
         ) : (

@@ -7,6 +7,7 @@
 
 import {
   backgroundById,
+  cameraGeometry,
   cropRect,
   radiusPx,
   videoRect,
@@ -15,10 +16,19 @@ import {
   type Rect,
   type ZoomRegion,
 } from "@/lib/scene";
+import type { CameraLayout } from "@/lib/camera-layout";
+
+export interface SceneCamera {
+  /** Object URL of the recorded webcam track. */
+  url: string;
+  layout: CameraLayout;
+}
 
 export interface Scene {
   style: FrameStyle;
   zooms: ZoomRegion[];
+  /** Present when a webcam bubble should be composited over the video. */
+  camera?: SceneCamera | null;
 }
 
 function roundRectPath(
@@ -35,9 +45,55 @@ function roundRectPath(
   }
 }
 
+/** Draw the webcam bubble (cover-cropped, clipped, mirrored, bordered). */
+function drawCameraBubble(
+  ctx: CanvasRenderingContext2D,
+  camVideo: HTMLVideoElement,
+  layout: CameraLayout,
+  rect: Rect,
+) {
+  const { cx, cy, d, radius, borderW } = cameraGeometry(layout, rect);
+  const half = d / 2;
+  const cw = camVideo.videoWidth || 1;
+  const ch = camVideo.videoHeight || 1;
+  const side = Math.min(cw, ch);
+  const sx = (cw - side) / 2;
+  const sy = (ch - side) / 2;
+
+  const path = () => {
+    ctx.beginPath();
+    if (layout.shape === "circle") {
+      ctx.arc(cx, cy, half, 0, Math.PI * 2);
+    } else if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(cx - half, cy - half, d, d, radius);
+    } else {
+      ctx.rect(cx - half, cy - half, d, d);
+    }
+  };
+
+  ctx.save();
+  path();
+  ctx.clip();
+  if (layout.mirror) {
+    // Mirror around the bubble's own centre: x' = 2cx − x.
+    ctx.translate(cx * 2, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(camVideo, sx, sy, side, side, cx - half, cy - half, d, d);
+  ctx.restore();
+
+  if (borderW > 0 && layout.borderColor) {
+    path();
+    ctx.lineWidth = borderW;
+    ctx.strokeStyle = layout.borderColor;
+    ctx.stroke();
+  }
+}
+
 /**
  * Draw the scene for the current `video` frame at `time` (source seconds)
- * onto a canvas of the video's own dimensions.
+ * onto a canvas of the video's own dimensions. The webcam element (when the
+ * scene has one) is drawn on top, unaffected by the zoom crop.
  */
 export function drawSceneFrame(
   ctx: CanvasRenderingContext2D,
@@ -46,6 +102,7 @@ export function drawSceneFrame(
   frameW: number,
   frameH: number,
   time: number,
+  camVideo?: HTMLVideoElement | null,
 ) {
   const bg = backgroundById(scene.style.background);
   const styled = bg.id !== "none";
@@ -95,4 +152,8 @@ export function drawSceneFrame(
     rect.h,
   );
   ctx.restore();
+
+  if (scene.camera && camVideo && camVideo.readyState >= 2) {
+    drawCameraBubble(ctx, camVideo, scene.camera.layout, rect);
+  }
 }

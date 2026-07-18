@@ -28,6 +28,7 @@ import {
   DEFAULT_FRAME_STYLE,
   ZOOM_MAX_SCALE,
   backgroundById,
+  cameraGeometry,
   cropRect,
   cssZoomTransform,
   radiusPx,
@@ -36,11 +37,16 @@ import {
   zoomStateAt,
   type FrameStyle,
 } from "@/lib/scene";
+import {
+  DEFAULT_CAMERA_LAYOUT,
+  type CameraLayout,
+} from "@/lib/camera-layout";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
+import { CameraPanel } from "@/components/recorder/camera-panel";
 
 const THUMB_COUNT = 14;
 const FRAME_STYLE_KEY = "kirmizi:frame-style";
@@ -91,9 +97,16 @@ export function Editor({
 }) {
   const editor = useVideoEditor();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const camRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const measuredRef = useRef(false);
+
+  const camera = recording.camera ?? null;
+  const [camLayout, setCamLayout] = useState<CameraLayout>(
+    camera?.layout ?? DEFAULT_CAMERA_LAYOUT,
+  );
+  const [camHidden, setCamHidden] = useState(false);
 
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -129,7 +142,8 @@ export function Editor({
     (s) => playhead > s.start + 0.15 && playhead < s.end - 0.15,
   );
 
-  const hasScene = sceneActive(frameStyle, zooms);
+  const cameraOn = !!camera && !camHidden;
+  const hasScene = sceneActive(frameStyle, zooms) || cameraOn;
   const edited = isEdited || hasScene;
 
   const setPlayingBoth = useCallback((value: boolean) => {
@@ -309,6 +323,25 @@ export function Editor({
           video.style.transform = transform;
         }
       }
+      // Keep the webcam track locked to the main video: play state,
+      // playback rate, and (drift-corrected) time.
+      const cam = camRef.current;
+      if (cam && video) {
+        if (cam.playbackRate !== video.playbackRate) {
+          cam.playbackRate = video.playbackRate;
+        }
+        if (video.paused) {
+          if (!cam.paused) cam.pause();
+          if (Math.abs(cam.currentTime - video.currentTime) > 0.05) {
+            cam.currentTime = video.currentTime;
+          }
+        } else {
+          if (cam.paused) cam.play().catch(() => {});
+          if (Math.abs(cam.currentTime - video.currentTime) > 0.2) {
+            cam.currentTime = video.currentTime;
+          }
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -369,6 +402,34 @@ export function Editor({
   function handleDotPointerUp(event: React.PointerEvent) {
     dotDragRef.current = false;
     dotDirtyRef.current = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  }
+
+  // --- webcam bubble: drag on the preview to reposition -------------------
+  const camDragRef = useRef(false);
+
+  function handleCamPointerDown(event: React.PointerEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    camDragRef.current = true;
+  }
+
+  function handleCamPointerMove(event: React.PointerEvent) {
+    if (!camDragRef.current || !stageRef.current) return;
+    if (dims.w === 0 || stagePs === 0) return;
+    const bounds = stageRef.current.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / stagePs - stageRect.x) / stageRect.w;
+    const y = ((event.clientY - bounds.top) / stagePs - stageRect.y) / stageRect.h;
+    setCamLayout((layout) => ({
+      ...layout,
+      x: Math.min(1, Math.max(0, x)),
+      y: Math.min(1, Math.max(0, y)),
+    }));
+  }
+
+  function handleCamPointerUp(event: React.PointerEvent) {
+    camDragRef.current = false;
     (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
   }
 
@@ -548,7 +609,16 @@ export function Editor({
         editor.segments,
         recording.mimeType,
         setProgress,
-        hasScene ? { style: frameStyle, zooms: editor.zooms } : null,
+        hasScene
+          ? {
+              style: frameStyle,
+              zooms: editor.zooms,
+              camera:
+                cameraOn && camera
+                  ? { url: camera.url, layout: camLayout }
+                  : null,
+            }
+          : null,
       );
       if (isMp4 && canUseFFmpeg(blob)) blob = await toCompatibleMp4(blob, ffCbs);
       finish(blob, filename);
@@ -565,6 +635,8 @@ export function Editor({
   const ready = duration > 0;
   const dot = dotPosition();
   const stageMin = Math.min(dims.w, dims.h);
+  const camGeo =
+    camera && dims.w > 0 ? cameraGeometry(camLayout, stageRect) : null;
 
   return (
     <div ref={containerRef} className="flex w-full max-w-3xl flex-col gap-5">
@@ -624,6 +696,39 @@ export function Editor({
                 styled ? "h-full w-full" : "w-full",
               )}
             />
+
+            {/* Webcam bubble — a sibling of the video so the zoom transform
+                doesn't drag it along. Drag to reposition. */}
+            {camera && camGeo && (
+              <div
+                onPointerDown={handleCamPointerDown}
+                onPointerMove={handleCamPointerMove}
+                onPointerUp={handleCamPointerUp}
+                className="absolute z-10 cursor-move touch-none overflow-hidden"
+                style={{
+                  left: (camGeo.cx - camGeo.d / 2 - stageRect.x) * stagePs,
+                  top: (camGeo.cy - camGeo.d / 2 - stageRect.y) * stagePs,
+                  width: camGeo.d * stagePs,
+                  height: camGeo.d * stagePs,
+                  borderRadius: camGeo.radius * stagePs,
+                  border: camLayout.borderColor
+                    ? `${Math.max(1, camGeo.borderW * stagePs)}px solid ${camLayout.borderColor}`
+                    : undefined,
+                  display: camHidden ? "none" : undefined,
+                }}
+              >
+                <video
+                  ref={camRef}
+                  src={camera.url}
+                  muted
+                  playsInline
+                  className={cn(
+                    "h-full w-full object-cover",
+                    camLayout.mirror && "-scale-x-100",
+                  )}
+                />
+              </div>
+            )}
           </div>
 
           {/* Focal point of the selected zoom — drag to re-aim. */}
@@ -847,6 +952,15 @@ export function Editor({
           )}
 
           <FramePanel style={frameStyle} onChange={applyFrameStyle} />
+
+          {camera && (
+            <CameraPanel
+              layout={camLayout}
+              hidden={camHidden}
+              onChange={setCamLayout}
+              onToggleHidden={() => setCamHidden((h) => !h)}
+            />
+          )}
 
           {/* Actions */}
           <div className="flex flex-col-reverse items-center gap-4 border-t border-border pt-5 sm:flex-row sm:justify-between">

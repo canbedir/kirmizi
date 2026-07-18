@@ -116,11 +116,28 @@ export async function exportSegments(
     video.onerror = () => reject(new Error("Couldn't load the recording."));
   });
 
-  const useScene = !!scene && sceneActive(scene.style, scene.zooms);
+  const useScene =
+    !!scene && (sceneActive(scene.style, scene.zooms) || !!scene.camera);
 
   let videoStream: MediaStream;
   let stopTicker: (() => void) | null = null;
+  let camVideo: HTMLVideoElement | null = null;
   if (useScene) {
+    // The webcam track plays alongside the main video and is re-synced at
+    // every segment boundary; the renderer draws whatever frame it's on.
+    if (scene.camera) {
+      camVideo = document.createElement("video");
+      camVideo.src = scene.camera.url;
+      camVideo.muted = true;
+      camVideo.playsInline = true;
+      camVideo.preload = "auto";
+      const cam = camVideo;
+      const loaded = await new Promise<boolean>((resolve) => {
+        cam.onloadedmetadata = () => resolve(true);
+        cam.onerror = () => resolve(false);
+      });
+      if (!loaded) camVideo = null;
+    }
     const frameW = video.videoWidth || 1280;
     const frameH = video.videoHeight || 720;
     const canvas = document.createElement("canvas");
@@ -129,7 +146,15 @@ export async function exportSegments(
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D isn't available for the export.");
     const draw = () =>
-      drawSceneFrame(ctx, video, scene, frameW, frameH, video.currentTime);
+      drawSceneFrame(
+        ctx,
+        video,
+        scene,
+        frameW,
+        frameH,
+        video.currentTime,
+        camVideo,
+      );
     stopTicker = startTicker(draw);
     draw();
     videoStream = canvas.captureStream(30);
@@ -183,16 +208,29 @@ export async function exportSegments(
     gain.gain.value = segment.muted ? 0 : 1;
     video.playbackRate = segment.speed;
     await seek(video, segment.start);
+    if (camVideo) {
+      camVideo.playbackRate = segment.speed;
+      camVideo.currentTime = Math.min(
+        segment.start,
+        camVideo.duration || segment.start,
+      );
+      camVideo.play().catch(() => {});
+    }
     await playUntil(video, segment.end, (current) => {
       const within = (current - segment.start) / segment.speed;
       onProgress?.(Math.min(1, (elapsed + within) / total));
     });
+    camVideo?.pause();
     elapsed += (segment.end - segment.start) / segment.speed;
   }
   recorder.stop();
 
   const blob = await done;
   stopTicker?.();
+  if (camVideo) {
+    camVideo.removeAttribute("src");
+    camVideo.load();
+  }
   exportStream.getTracks().forEach((track) => track.stop());
   videoStream.getTracks().forEach((track) => track.stop());
   audioCtx.close().catch(() => {});

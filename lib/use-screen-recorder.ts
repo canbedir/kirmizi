@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  composeCameraPip,
-  type CameraComposite,
+  DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
-} from "@/lib/camera-composite";
+} from "@/lib/camera-layout";
 
 export type RecorderStatus =
   | "idle"
@@ -15,12 +14,23 @@ export type RecorderStatus =
   | "stopped"
   | "error";
 
+/** The webcam, captured as its own track alongside the screen. */
+export interface RecordedCamera {
+  url: string;
+  blob: Blob;
+  mimeType: string;
+  /** The bubble layout configured when this was recorded. */
+  layout: CameraLayout;
+}
+
 export interface Recording {
   url: string;
   blob: Blob;
   mimeType: string;
   size: number;
   durationMs: number;
+  /** Present when a webcam was recorded; composited in the editor/export. */
+  camera?: RecordedCamera | null;
 }
 
 export type Resolution = "auto" | "1440p" | "1080p" | "720p";
@@ -88,6 +98,8 @@ export interface UseScreenRecorder {
   togglePause: () => void;
   /** The stream being recorded (video + mixed audio), for a live preview. */
   previewStream: MediaStream | null;
+  /** The live webcam stream while recording (for the HUD bubble overlay). */
+  cameraPreviewStream: MediaStream | null;
   /** Current countdown value while status is "countdown" (else 0). */
   countdown: number;
   /** A microphone track was captured for this session. */
@@ -108,6 +120,8 @@ export function useScreenRecorder(): UseScreenRecorder {
   const [micActive, setMicActive] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  const [cameraPreviewStream, setCameraPreviewStream] =
+    useState<MediaStream | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [paused, setPaused] = useState(false);
   // Set when the user aborts (stop / reset / native stop) during the countdown.
@@ -120,9 +134,9 @@ export function useScreenRecorder(): UseScreenRecorder {
   const micStreamRef = useRef<MediaStream | null>(null);
   const micTrackRef = useRef<MediaStreamTrack | null>(null);
   const camStreamRef = useRef<MediaStream | null>(null);
-  const compositeRef = useRef<CameraComposite | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const camRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef(0);
   const timerRef = useRef<number | null>(null);
@@ -137,8 +151,6 @@ export function useScreenRecorder(): UseScreenRecorder {
   }, []);
 
   const cleanupCapture = useCallback(() => {
-    compositeRef.current?.stop();
-    compositeRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -155,6 +167,9 @@ export function useScreenRecorder(): UseScreenRecorder {
   const revokeRecording = useCallback(() => {
     if (recordingRef.current) {
       URL.revokeObjectURL(recordingRef.current.url);
+      if (recordingRef.current.camera) {
+        URL.revokeObjectURL(recordingRef.current.camera.url);
+      }
       recordingRef.current = null;
     }
   }, []);
@@ -162,6 +177,8 @@ export function useScreenRecorder(): UseScreenRecorder {
   const stop = useCallback(() => {
     startAbortedRef.current = true; // no-op mid-recording, cancels the countdown
     clearTimer();
+    const camRecorder = camRecorderRef.current;
+    if (camRecorder && camRecorder.state !== "inactive") camRecorder.stop();
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       recorder.stop(); // onstop builds the blob and cleans up capture
@@ -173,8 +190,10 @@ export function useScreenRecorder(): UseScreenRecorder {
   const togglePause = useCallback(() => {
     const recorder = recorderRef.current;
     if (!recorder) return;
+    const camRecorder = camRecorderRef.current;
     if (recorder.state === "recording") {
       recorder.pause();
+      if (camRecorder?.state === "recording") camRecorder.pause();
       clearTimer();
       accumulatedRef.current += Date.now() - startedAtRef.current;
       setElapsedMs(accumulatedRef.current);
@@ -182,6 +201,7 @@ export function useScreenRecorder(): UseScreenRecorder {
       setPaused(true);
     } else if (recorder.state === "paused") {
       recorder.resume();
+      if (camRecorder?.state === "paused") camRecorder.resume();
       startedAtRef.current = Date.now();
       timerRef.current = window.setInterval(() => {
         setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
@@ -349,22 +369,10 @@ export function useScreenRecorder(): UseScreenRecorder {
         audioTracks = display.getAudioTracks();
       }
 
-      // Video: composite the webcam bubble when a camera was granted, else use
-      // the screen track directly.
-      let videoTracks = display.getVideoTracks();
-      if (cam) {
-        try {
-          const composite = await composeCameraPip(
-            display,
-            cam,
-            options?.cameraLayout,
-          );
-          compositeRef.current = composite;
-          videoTracks = composite.stream.getVideoTracks();
-        } catch {
-          videoTracks = display.getVideoTracks();
-        }
-      }
+      // Video: always the raw screen. The webcam (if granted) is recorded as
+      // its own track below and composited later in the editor/export, so the
+      // bubble stays editable after the fact instead of being burned in.
+      const videoTracks = display.getVideoTracks();
 
       // Bias the encoder toward sharp screen/text content (detail over motion)
       // and pick a generous bitrate from the capture resolution so text stays
@@ -405,29 +413,89 @@ export function useScreenRecorder(): UseScreenRecorder {
           chunksRef.current.push(event.data);
       };
 
+      // The webcam records in parallel with the same clock so the editor can
+      // sync the two tracks by timestamp alone.
+      let camRecorder: MediaRecorder | null = null;
+      let camDone: Promise<Blob | null> = Promise.resolve(null);
+      if (cam && cam.getVideoTracks().length > 0) {
+        const camStream = new MediaStream(cam.getVideoTracks());
+        try {
+          const camOptions: MediaRecorderOptions = {
+            videoBitsPerSecond: 6_000_000,
+          };
+          if (mimeType) camOptions.mimeType = mimeType;
+          camRecorder = new MediaRecorder(camStream, camOptions);
+        } catch {
+          try {
+            camRecorder = new MediaRecorder(camStream);
+          } catch {
+            camRecorder = null;
+          }
+        }
+      }
+      if (camRecorder) {
+        const camChunks: Blob[] = [];
+        camRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) camChunks.push(event.data);
+        };
+        const rec = camRecorder;
+        camDone = new Promise((resolve) => {
+          rec.onstop = () =>
+            resolve(
+              new Blob(camChunks, {
+                type: rec.mimeType || mimeType || "video/webm",
+              }),
+            );
+          rec.onerror = () => resolve(null);
+        });
+      }
+      camRecorderRef.current = camRecorder;
+
       recorder.onstop = () => {
         clearTimer();
+        const camRec = camRecorderRef.current;
+        if (camRec && camRec.state !== "inactive") camRec.stop();
+        camRecorderRef.current = null;
         const type = recorder.mimeType || mimeType || "video/webm";
         const blob = new Blob(chunksRef.current, { type });
         const url = URL.createObjectURL(blob);
-        const finished: Recording = {
-          url,
-          blob,
-          mimeType: type,
-          size: blob.size,
-          // Paused stretches don't count; the running one (if any) does.
-          durationMs:
-            accumulatedRef.current +
-            (pausedRef.current ? 0 : Date.now() - startedAtRef.current),
-        };
-        recordingRef.current = finished;
-        setRecording(finished);
-        setStatus("stopped");
-        setMicActive(false);
-        pausedRef.current = false;
-        setPaused(false);
-        setPreviewStream(null);
-        cleanupCapture();
+        // Paused stretches don't count; the running one (if any) does.
+        const durationMs =
+          accumulatedRef.current +
+          (pausedRef.current ? 0 : Date.now() - startedAtRef.current);
+        void (async () => {
+          // Wait (briefly) for the camera track to finalize its own blob.
+          let camera: RecordedCamera | null = null;
+          const camBlob = await Promise.race([
+            camDone,
+            sleep(3000).then(() => null),
+          ]);
+          if (camBlob && camBlob.size > 0) {
+            camera = {
+              url: URL.createObjectURL(camBlob),
+              blob: camBlob,
+              mimeType: camBlob.type,
+              layout: options?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
+            };
+          }
+          const finished: Recording = {
+            url,
+            blob,
+            mimeType: type,
+            size: blob.size,
+            durationMs,
+            camera,
+          };
+          recordingRef.current = finished;
+          setRecording(finished);
+          setStatus("stopped");
+          setMicActive(false);
+          pausedRef.current = false;
+          setPaused(false);
+          setPreviewStream(null);
+          setCameraPreviewStream(null);
+          cleanupCapture();
+        })();
       };
 
       // React to the browser's own "Stop sharing" bar.
@@ -447,6 +515,7 @@ export function useScreenRecorder(): UseScreenRecorder {
 
       // Bail out if the user cancelled (native stop / Escape) during the count.
       if (startAbortedRef.current) {
+        camRecorderRef.current = null;
         cleanupCapture();
         setMicActive(false);
         setStatus("idle");
@@ -459,11 +528,13 @@ export function useScreenRecorder(): UseScreenRecorder {
       setPaused(false);
       startedAtRef.current = Date.now();
       setPreviewStream(recordStream);
+      setCameraPreviewStream(cam);
       // Flush a chunk every second. Without a timeslice the recorder buffers
       // the entire session in memory and materializes it all at once on stop —
       // long recordings (GBs at our bitrates) freeze the tab. Periodic chunks
       // land in the browser's blob storage, which can spill to disk.
       recorder.start(1000);
+      camRecorder?.start(1000);
       setStatus("recording");
       timerRef.current = window.setInterval(() => {
         setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
@@ -488,6 +559,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     pausedRef.current = false;
     setPaused(false);
     setPreviewStream(null);
+    setCameraPreviewStream(null);
     setStatus("idle");
   }, [clearTimer, cleanupCapture, revokeRecording]);
 
@@ -509,6 +581,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     paused,
     togglePause,
     previewStream,
+    cameraPreviewStream,
     countdown,
     micActive,
     micMuted,

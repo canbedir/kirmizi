@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Mic, MicOff, Pause, Play, Square } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
+import type { CameraLayout } from "@/lib/camera-layout";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -32,6 +33,9 @@ interface RecordingHudProps {
   micMuted: boolean;
   onToggleMic: () => void;
   previewStream: MediaStream | null;
+  /** Live webcam stream — shown as a bubble overlay on the preview. */
+  cameraStream?: MediaStream | null;
+  cameraLayout?: CameraLayout;
 }
 
 export function RecordingHud({
@@ -43,8 +47,11 @@ export function RecordingHud({
   micMuted,
   onToggleMic,
   previewStream,
+  cameraStream,
+  cameraLayout,
 }: RecordingHudProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const camRef = useRef<HTMLVideoElement>(null);
 
   // Attach the live capture stream to the preview element.
   useEffect(() => {
@@ -54,17 +61,46 @@ export function RecordingHud({
     if (previewStream) video.play().catch(() => {});
   }, [previewStream]);
 
+  useEffect(() => {
+    const cam = camRef.current;
+    if (!cam) return;
+    cam.srcObject = cameraStream ?? null;
+    if (cameraStream) cam.play().catch(() => {});
+  }, [cameraStream]);
+
   return (
     <div className="flex w-full max-w-3xl flex-col items-center gap-6">
       <div className="relative w-full">
         {previewStream ? (
-          <video
-            ref={videoRef}
-            muted
-            autoPlay
-            playsInline
-            className="w-full rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
-          />
+          <div className="relative w-full overflow-hidden rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]">
+            <video ref={videoRef} muted autoPlay playsInline className="w-full" />
+            {/* Approximate live bubble — the editor and export apply the
+                exact geometry; this just mirrors where it will sit. */}
+            {cameraStream && cameraLayout && (
+              <video
+                ref={camRef}
+                muted
+                autoPlay
+                playsInline
+                className={cn(
+                  "absolute -translate-x-1/2 -translate-y-1/2 object-cover",
+                  cameraLayout.shape === "circle"
+                    ? "rounded-full"
+                    : "rounded-[20%]",
+                  cameraLayout.mirror && "-scale-x-100",
+                )}
+                style={{
+                  left: `${cameraLayout.x * 100}%`,
+                  top: `${cameraLayout.y * 100}%`,
+                  height: `${cameraLayout.size * 100}%`,
+                  aspectRatio: "1 / 1",
+                  boxShadow: cameraLayout.borderColor
+                    ? `0 0 0 3px ${cameraLayout.borderColor}`
+                    : undefined,
+                }}
+              />
+            )}
+          </div>
         ) : (
           <div className="grid aspect-video w-full place-items-center rounded-xl border border-border bg-black">
             <span className="font-mono text-6xl tabular-nums">

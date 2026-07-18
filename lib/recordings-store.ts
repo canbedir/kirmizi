@@ -4,11 +4,16 @@
 // (never uploaded). Meta and blobs live in separate stores so listing doesn't
 // pull every video into memory.
 
+import type { CameraLayout } from "@/lib/camera-layout";
+
 const DB_NAME = "kirmizi";
 const DB_VERSION = 1;
 const META = "meta";
 const BLOBS = "blobs";
 const MAX_ITEMS = 5;
+
+// The webcam track (when present) lives in BLOBS under a derived key.
+const camKey = (id: string) => `${id}/cam`;
 
 export interface RecordingMeta {
   id: string;
@@ -18,6 +23,9 @@ export interface RecordingMeta {
   createdAt: number;
   /** JPEG data URL of a cover frame, if one could be captured. */
   cover?: string | null;
+  /** Set when a webcam track was stored alongside the screen recording. */
+  cameraMimeType?: string | null;
+  cameraLayout?: CameraLayout | null;
 }
 
 export interface NewRecording {
@@ -26,6 +34,11 @@ export interface NewRecording {
   size: number;
   durationMs: number;
   cover?: string | null;
+  camera?: {
+    blob: Blob;
+    mimeType: string;
+    layout: CameraLayout;
+  } | null;
 }
 
 function hasIDB(): boolean {
@@ -107,10 +120,15 @@ export async function saveRecording(rec: NewRecording): Promise<void> {
       durationMs: rec.durationMs,
       createdAt: Date.now(),
       cover: rec.cover ?? null,
+      cameraMimeType: rec.camera?.mimeType ?? null,
+      cameraLayout: rec.camera?.layout ?? null,
     };
     const tx = db.transaction([META, BLOBS], "readwrite");
     tx.objectStore(META).put(meta);
     tx.objectStore(BLOBS).put({ id, blob: rec.blob });
+    if (rec.camera) {
+      tx.objectStore(BLOBS).put({ id: camKey(id), blob: rec.camera.blob });
+    }
     await txDone(tx);
 
     // Keep only the newest MAX_ITEMS.
@@ -123,6 +141,7 @@ export async function saveRecording(rec: NewRecording): Promise<void> {
       for (const m of stale) {
         pruneTx.objectStore(META).delete(m.id);
         pruneTx.objectStore(BLOBS).delete(m.id);
+        pruneTx.objectStore(BLOBS).delete(camKey(m.id));
       }
       await txDone(pruneTx);
     }
@@ -139,9 +158,26 @@ export async function deleteRecording(id: string): Promise<void> {
     const tx = db.transaction([META, BLOBS], "readwrite");
     tx.objectStore(META).delete(id);
     tx.objectStore(BLOBS).delete(id);
+    tx.objectStore(BLOBS).delete(camKey(id));
     await txDone(tx);
     db.close();
   } catch {
     /* ignore */
+  }
+}
+
+/** The stored webcam track for a recording, if one was saved. */
+export async function getRecordingCameraBlob(id: string): Promise<Blob | null> {
+  if (!hasIDB()) return null;
+  try {
+    const db = await openDB();
+    const store = db.transaction(BLOBS, "readonly").objectStore(BLOBS);
+    const rec = (await request(store.get(camKey(id)))) as
+      | { id: string; blob: Blob }
+      | undefined;
+    db.close();
+    return rec?.blob ?? null;
+  } catch {
+    return null;
   }
 }
