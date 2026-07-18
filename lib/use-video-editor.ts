@@ -30,6 +30,9 @@ function uid(): string {
 
 const EPS = 0.05;
 
+/** Shortest a segment can be trimmed down to, seconds. */
+export const SEGMENT_MIN_LENGTH = 0.2;
+
 const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
 
@@ -73,6 +76,17 @@ export interface VideoEditor {
   remove: (id: string) => void;
   setMuted: (id: string, muted: boolean) => void;
   setSpeed: (id: string, speed: number) => void;
+  /**
+   * Trim a segment's in/out point without touching the undo history — call
+   * `checkpoint()` once at the start of the drag so the whole gesture undoes
+   * as one step. Edges are clamped against the clip bounds, neighbouring
+   * segments, and a minimum length; a trimmed-away range can be recovered by
+   * dragging back out into the gap.
+   */
+  updateSegment: (
+    id: string,
+    patch: Partial<Pick<Segment, "start" | "end">>,
+  ) => void;
   /**
    * Add a zoom region at `time` and select it. Returns the new region, an
    * existing region already covering `time`, or null if there's no room.
@@ -189,6 +203,40 @@ export function useVideoEditor(): VideoEditor {
       }));
     },
     [apply],
+  );
+
+  const updateSegment = useCallback(
+    (id: string, patch: Partial<Pick<Segment, "start" | "end">>) => {
+      setHistory((h) => {
+        const cur = h.present.segments.find((s) => s.id === id);
+        if (!cur) return h;
+        const others = h.present.segments.filter((s) => s.id !== id);
+        // Trimming can reach into deleted gaps but never past a neighbour.
+        let lo = 0;
+        let hi = duration;
+        for (const s of others) {
+          if (s.end <= cur.start + EPS) lo = Math.max(lo, s.end);
+          if (s.start >= cur.end - EPS) hi = Math.min(hi, s.start);
+        }
+        const next: Segment = { ...cur, ...patch };
+        if (patch.start !== undefined) {
+          next.start = clamp(next.start, lo, cur.end - SEGMENT_MIN_LENGTH);
+        }
+        if (patch.end !== undefined) {
+          next.end = clamp(next.end, cur.start + SEGMENT_MIN_LENGTH, hi);
+        }
+        return {
+          ...h,
+          present: {
+            ...h.present,
+            segments: others
+              .concat(next)
+              .sort((a, b) => a.start - b.start),
+          },
+        };
+      });
+    },
+    [duration],
   );
 
   // The free window around `time` between neighbouring zoom regions.
@@ -356,6 +404,7 @@ export function useVideoEditor(): VideoEditor {
     remove,
     setMuted,
     setSpeed,
+    updateSegment,
     addZoom,
     removeZoom,
     updateZoom,

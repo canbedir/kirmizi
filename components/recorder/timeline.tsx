@@ -31,11 +31,23 @@ interface TimelineProps {
   /** Called once when a zoom drag actually starts moving (for undo). */
   onZoomDragStart: () => void;
   onZoomChange: (id: string, patch: { start?: number; end?: number }) => void;
+  /** Called once when a segment trim actually starts moving (for undo). */
+  onSegmentDragStart: () => void;
+  onSegmentTrim: (id: string, patch: { start?: number; end?: number }) => void;
 }
 
 interface ZoomDrag {
   id: string;
   mode: "move" | "left" | "right";
+  originX: number;
+  start: number;
+  end: number;
+  moved: boolean;
+}
+
+interface SegmentDrag {
+  id: string;
+  mode: "left" | "right";
   originX: number;
   start: number;
   end: number;
@@ -73,12 +85,15 @@ export function Timeline({
   onSelectZoom,
   onZoomDragStart,
   onZoomChange,
+  onSegmentDragStart,
+  onSegmentTrim,
 }: TimelineProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const zoomDragRef = useRef<ZoomDrag | null>(null);
+  const segDragRef = useRef<SegmentDrag | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const width = Math.max(1, duration * pxPerSec);
 
@@ -182,6 +197,51 @@ export function Timeline({
     if (!zoomDragRef.current) return;
     event.stopPropagation();
     zoomDragRef.current = null;
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  }
+
+  // --- segment trims: drag a kept segment's edge to move its in/out point ---
+  function beginSegTrim(
+    event: React.PointerEvent,
+    segment: Segment,
+    mode: SegmentDrag["mode"],
+  ) {
+    event.stopPropagation();
+    setHover(null);
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    onSelect(segment.id);
+    segDragRef.current = {
+      id: segment.id,
+      mode,
+      originX: event.clientX,
+      start: segment.start,
+      end: segment.end,
+      moved: false,
+    };
+  }
+
+  function moveSegTrim(event: React.PointerEvent) {
+    const drag = segDragRef.current;
+    if (!drag) return;
+    event.stopPropagation();
+    const dx = event.clientX - drag.originX;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 3) return;
+      drag.moved = true;
+      onSegmentDragStart();
+    }
+    const dt = dx / pxPerSec;
+    if (drag.mode === "left") {
+      onSegmentTrim(drag.id, { start: drag.start + dt });
+    } else {
+      onSegmentTrim(drag.id, { end: drag.end + dt });
+    }
+  }
+
+  function endSegTrim(event: React.PointerEvent) {
+    if (!segDragRef.current) return;
+    event.stopPropagation();
+    segDragRef.current = null;
     (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
   }
 
@@ -303,6 +363,27 @@ export function Timeline({
                   </span>
                 )}
               </div>
+
+              {/* Trim handles — interactive even though the segment body
+                  stays click-through for seeking. */}
+              <div
+                onPointerDown={(e) => beginSegTrim(e, seg, "left")}
+                onPointerMove={moveSegTrim}
+                onPointerUp={endSegTrim}
+                className={cn(
+                  "pointer-events-auto absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-md",
+                  selected ? "bg-red/70" : "hover:bg-red/50",
+                )}
+              />
+              <div
+                onPointerDown={(e) => beginSegTrim(e, seg, "right")}
+                onPointerMove={moveSegTrim}
+                onPointerUp={endSegTrim}
+                className={cn(
+                  "pointer-events-auto absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-md",
+                  selected ? "bg-red/70" : "hover:bg-red/50",
+                )}
+              />
             </div>
           );
         })}

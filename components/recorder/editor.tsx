@@ -292,6 +292,19 @@ export function Editor({
     handleSeek((region.start + region.end) / 2);
   }
 
+  // While trimming a segment edge, park the playhead on the trim frame so
+  // the preview shows exactly where the cut lands.
+  function handleSegmentTrim(
+    id: string,
+    patch: { start?: number; end?: number },
+  ) {
+    editor.updateSegment(id, patch);
+    const edge = patch.start ?? patch.end;
+    if (edge !== undefined) {
+      handleSeek(Math.min(duration, Math.max(0, edge)));
+    }
+  }
+
   function handleSelectZoom(id: string | null) {
     editor.selectZoom(id);
     if (!id) return;
@@ -828,6 +841,8 @@ export function Editor({
             onSelectZoom={handleSelectZoom}
             onZoomDragStart={editor.checkpoint}
             onZoomChange={editor.updateZoom}
+            onSegmentDragStart={editor.checkpoint}
+            onSegmentTrim={handleSegmentTrim}
           />
 
           {/* Editing toolbar */}
