@@ -66,15 +66,15 @@ No database, no authentication, and no server-side media handling are involved.
 ## Getting started
 
 ```bash
-npm install
-npm run dev            # http://localhost:3000
+bun install
+bun dev                # http://localhost:3000
 ```
 
 `getDisplayMedia` requires a secure context, so recording is available on
 `localhost` during development and over HTTPS in production.
 
 ```bash
-npm run build && npm run start    # production build
+bun run build && bun run start    # production build
 ```
 
 ## Browser support
