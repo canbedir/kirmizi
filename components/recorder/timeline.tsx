@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MicOff } from "lucide-react";
+import { MicOff, ZoomIn } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import type { Segment } from "@/lib/use-video-editor";
+import type { ZoomRegion } from "@/lib/scene";
 
 interface Hover {
   /** Hovered time in seconds. */
@@ -18,12 +19,27 @@ const PREVIEW_HALF = 72; // half the preview card's width, for edge clamping
 interface TimelineProps {
   duration: number;
   segments: Segment[];
+  zooms: ZoomRegion[];
   selectedId: string | null;
+  selectedZoomId: string | null;
   playhead: number;
   pxPerSec: number;
   thumbnails: string[];
   onSeek: (time: number) => void;
   onSelect: (id: string | null) => void;
+  onSelectZoom: (id: string | null) => void;
+  /** Called once when a zoom drag actually starts moving (for undo). */
+  onZoomDragStart: () => void;
+  onZoomChange: (id: string, patch: { start?: number; end?: number }) => void;
+}
+
+interface ZoomDrag {
+  id: string;
+  mode: "move" | "left" | "right";
+  originX: number;
+  start: number;
+  end: number;
+  moved: boolean;
 }
 
 interface Gap {
@@ -46,17 +62,23 @@ function gapsOf(segments: Segment[], duration: number): Gap[] {
 export function Timeline({
   duration,
   segments,
+  zooms,
   selectedId,
+  selectedZoomId,
   playhead,
   pxPerSec,
   thumbnails,
   onSeek,
   onSelect,
+  onSelectZoom,
+  onZoomDragStart,
+  onZoomChange,
 }: TimelineProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const zoomDragRef = useRef<ZoomDrag | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const width = Math.max(1, duration * pxPerSec);
 
@@ -114,6 +136,53 @@ export function Timeline({
   function handlePointerUp(event: React.PointerEvent) {
     draggingRef.current = false;
     trackRef.current?.releasePointerCapture(event.pointerId);
+  }
+
+  // --- zoom-region drags: move the pill, or resize it by an edge handle ---
+  function beginZoomDrag(
+    event: React.PointerEvent,
+    zoom: ZoomRegion,
+    mode: ZoomDrag["mode"],
+  ) {
+    event.stopPropagation();
+    setHover(null);
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    onSelectZoom(zoom.id);
+    zoomDragRef.current = {
+      id: zoom.id,
+      mode,
+      originX: event.clientX,
+      start: zoom.start,
+      end: zoom.end,
+      moved: false,
+    };
+  }
+
+  function moveZoomDrag(event: React.PointerEvent) {
+    const drag = zoomDragRef.current;
+    if (!drag) return;
+    event.stopPropagation();
+    const dx = event.clientX - drag.originX;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 3) return;
+      drag.moved = true;
+      onZoomDragStart();
+    }
+    const dt = dx / pxPerSec;
+    if (drag.mode === "move") {
+      onZoomChange(drag.id, { start: drag.start + dt, end: drag.end + dt });
+    } else if (drag.mode === "left") {
+      onZoomChange(drag.id, { start: drag.start + dt });
+    } else {
+      onZoomChange(drag.id, { end: drag.end + dt });
+    }
+  }
+
+  function endZoomDrag(event: React.PointerEvent) {
+    if (!zoomDragRef.current) return;
+    event.stopPropagation();
+    zoomDragRef.current = null;
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
   }
 
   const thumbIndex =
@@ -234,6 +303,53 @@ export function Timeline({
                   </span>
                 )}
               </div>
+            </div>
+          );
+        })}
+
+        {/* Zoom regions — draggable pills overlaid along the top edge. */}
+        {zooms.map((zoom) => {
+          const selected = zoom.id === selectedZoomId;
+          return (
+            <div
+              key={zoom.id}
+              onPointerDown={(e) => beginZoomDrag(e, zoom, "move")}
+              onPointerMove={moveZoomDrag}
+              onPointerUp={endZoomDrag}
+              className={cn(
+                "absolute top-1 z-5 flex h-5 cursor-grab items-center gap-1 overflow-hidden rounded-md border px-1.5 backdrop-blur-sm select-none active:cursor-grabbing",
+                selected
+                  ? "border-red bg-red/20 text-foreground"
+                  : "border-foreground/25 bg-background/60 text-muted-foreground hover:border-foreground/50",
+              )}
+              style={{
+                left: zoom.start * pxPerSec,
+                width: Math.max(14, (zoom.end - zoom.start) * pxPerSec),
+              }}
+            >
+              <ZoomIn className="size-3 shrink-0" />
+              <span className="truncate font-mono text-[10px]">
+                {zoom.scale.toFixed(1)}×
+              </span>
+              {/* Edge handles for resizing. */}
+              <div
+                onPointerDown={(e) => beginZoomDrag(e, zoom, "left")}
+                onPointerMove={moveZoomDrag}
+                onPointerUp={endZoomDrag}
+                className={cn(
+                  "absolute inset-y-0 left-0 w-1.5 cursor-ew-resize",
+                  selected && "bg-red/60",
+                )}
+              />
+              <div
+                onPointerDown={(e) => beginZoomDrag(e, zoom, "right")}
+                onPointerMove={moveZoomDrag}
+                onPointerUp={endZoomDrag}
+                className={cn(
+                  "absolute inset-y-0 right-0 w-1.5 cursor-ew-resize",
+                  selected && "bg-red/60",
+                )}
+              />
             </div>
           );
         })}

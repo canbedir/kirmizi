@@ -1,6 +1,8 @@
 "use client";
 
 import type { Segment } from "@/lib/use-video-editor";
+import { drawSceneFrame, type Scene } from "@/lib/render-scene";
+import { sceneActive } from "@/lib/scene";
 
 type CaptureableVideo = HTMLVideoElement & {
   captureStream?: () => MediaStream;
@@ -57,17 +59,52 @@ function playUntil(
   });
 }
 
+// Ticks a callback from a Web Worker timer instead of requestAnimationFrame:
+// rAF freezes in background tabs, which would freeze a canvas-driven export
+// the moment the user switches away. Worker timers keep ticking.
+function startTicker(onTick: () => void): () => void {
+  try {
+    const url = URL.createObjectURL(
+      new Blob(
+        [
+          "let id;onmessage=e=>{if(e.data==='start'){id=setInterval(()=>postMessage(0),33)}else{clearInterval(id)}}",
+        ],
+        { type: "application/javascript" },
+      ),
+    );
+    const worker = new Worker(url);
+    worker.onmessage = onTick;
+    worker.postMessage("start");
+    return () => {
+      worker.postMessage("stop");
+      worker.terminate();
+      URL.revokeObjectURL(url);
+    };
+  } catch {
+    let raf = 0;
+    const loop = () => {
+      onTick();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }
+}
+
 /**
  * Render the kept segments back-to-back into a single recording. Video comes
- * from the element's captureStream; audio is routed through a Web Audio gain
- * node so per-segment mute works, while playbackRate handles per-segment speed.
- * Runs in (edited) real time, fully client-side.
+ * from the element's captureStream — or, when a scene (frame style / zooms)
+ * is set, from a canvas the scene renderer paints each frame onto. Audio is
+ * routed through a Web Audio gain node so per-segment mute works, while
+ * playbackRate handles per-segment speed. Runs in (edited) real time, fully
+ * client-side.
  */
 export async function exportSegments(
   url: string,
   segments: Segment[],
   mimeType: string,
   onProgress?: (fraction: number) => void,
+  scene?: Scene | null,
 ): Promise<Blob> {
   const video = document.createElement("video") as CaptureableVideo;
   video.src = url;
@@ -79,8 +116,28 @@ export async function exportSegments(
     video.onerror = () => reject(new Error("Couldn't load the recording."));
   });
 
-  const capture = captureStreamOf(video);
-  if (!capture) throw new Error("This browser can't export edited clips.");
+  const useScene = !!scene && sceneActive(scene.style, scene.zooms);
+
+  let videoStream: MediaStream;
+  let stopTicker: (() => void) | null = null;
+  if (useScene) {
+    const frameW = video.videoWidth || 1280;
+    const frameH = video.videoHeight || 720;
+    const canvas = document.createElement("canvas");
+    canvas.width = frameW;
+    canvas.height = frameH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D isn't available for the export.");
+    const draw = () =>
+      drawSceneFrame(ctx, video, scene, frameW, frameH, video.currentTime);
+    stopTicker = startTicker(draw);
+    draw();
+    videoStream = canvas.captureStream(30);
+  } else {
+    const capture = captureStreamOf(video);
+    if (!capture) throw new Error("This browser can't export edited clips.");
+    videoStream = capture.call(video);
+  }
 
   const AudioCtx: typeof AudioContext =
     window.AudioContext ??
@@ -94,7 +151,6 @@ export async function exportSegments(
   sourceNode.connect(gain);
   gain.connect(dest);
 
-  const videoStream = capture.call(video);
   const exportStream = new MediaStream([
     ...videoStream.getVideoTracks(),
     ...dest.stream.getAudioTracks(),
@@ -136,6 +192,7 @@ export async function exportSegments(
   recorder.stop();
 
   const blob = await done;
+  stopTicker?.();
   exportStream.getTracks().forEach((track) => track.stop());
   videoStream.getTracks().forEach((track) => track.stop());
   audioCtx.close().catch(() => {});

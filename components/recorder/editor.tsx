@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  Focus,
   Loader2,
   Pause,
   Play,
@@ -23,10 +24,37 @@ import { SPEED_STEPS, useVideoEditor, type Segment } from "@/lib/use-video-edito
 import { canExportVideo, exportSegments } from "@/lib/export-segments";
 import { canUseFFmpeg, losslessTrim, toCompatibleMp4 } from "@/lib/lossless-trim";
 import { generateThumbnails } from "@/lib/thumbnails";
+import {
+  DEFAULT_FRAME_STYLE,
+  ZOOM_MAX_SCALE,
+  backgroundById,
+  cropRect,
+  cssZoomTransform,
+  radiusPx,
+  sceneActive,
+  videoRect,
+  zoomStateAt,
+  type FrameStyle,
+} from "@/lib/scene";
+import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
+import { FramePanel } from "@/components/recorder/frame-panel";
 
 const THUMB_COUNT = 14;
+const FRAME_STYLE_KEY = "kirmizi:frame-style";
+
+function loadFrameStyle(): FrameStyle {
+  if (typeof window === "undefined") return DEFAULT_FRAME_STYLE;
+  try {
+    const raw = localStorage.getItem(FRAME_STYLE_KEY);
+    if (raw) return { ...DEFAULT_FRAME_STYLE, ...JSON.parse(raw) };
+  } catch {
+    /* corrupted styles fall back to the default */
+  }
+  return DEFAULT_FRAME_STYLE;
+}
 
 function fileExtension(mimeType: string): string {
   return mimeType.includes("mp4") ? "mp4" : "webm";
@@ -50,6 +78,10 @@ function saveUrl(url: string, filename: string) {
   anchor.remove();
 }
 
+function sliderValue(value: number | readonly number[]): number {
+  return Array.isArray(value) ? (value[0] as number) : (value as number);
+}
+
 export function Editor({
   recording,
   onReset,
@@ -60,6 +92,7 @@ export function Editor({
   const editor = useVideoEditor();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const measuredRef = useRef(false);
 
   const [playhead, setPlayhead] = useState(0);
@@ -68,12 +101,15 @@ export function Editor({
   const [containerWidth, setContainerWidth] = useState(0);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>(loadFrameStyle);
   const [exporting, setExporting] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
   const exportSupported = useMemo(() => canExportVideo(), []);
 
-  const { duration, segments, selectedId, isEdited, canUndo, canRedo } = editor;
+  const { duration, segments, zooms, selectedId, selectedZoomId, isEdited, canUndo, canRedo } =
+    editor;
   // At zoomFactor 1 the whole clip fits the timeline width; zoom scales up.
   const fitPxPerSec = duration > 0 && containerWidth > 0 ? containerWidth / duration : 10;
   const pxPerSec = fitPxPerSec * zoomFactor;
@@ -87,10 +123,14 @@ export function Editor({
     return () => observer.disconnect();
   }, []);
   const selected = segments.find((s) => s.id === selectedId) ?? null;
+  const selectedZoom = zooms.find((z) => z.id === selectedZoomId) ?? null;
   const format = fileExtension(recording.mimeType).toUpperCase();
   const canSplit = segments.some(
     (s) => playhead > s.start + 0.15 && playhead < s.end - 0.15,
   );
+
+  const hasScene = sceneActive(frameStyle, zooms);
+  const edited = isEdited || hasScene;
 
   const setPlayingBoth = useCallback((value: boolean) => {
     playingRef.current = value;
@@ -102,6 +142,15 @@ export function Editor({
     video.playbackRate = seg.speed;
   };
 
+  function applyFrameStyle(style: FrameStyle) {
+    setFrameStyle(style);
+    try {
+      localStorage.setItem(FRAME_STYLE_KEY, JSON.stringify(style));
+    } catch {
+      /* persistence is best-effort */
+    }
+  }
+
   // --- duration measurement (webm often reports Infinity until sought) ---
   function finalizeDuration(value: number) {
     if (measuredRef.current || !Number.isFinite(value) || value <= 0) return;
@@ -109,7 +158,10 @@ export function Editor({
     editor.init(value);
     setZoomFactor(1);
     const video = videoRef.current;
-    if (video) video.currentTime = 0;
+    if (video) {
+      video.currentTime = 0;
+      setDims({ w: video.videoWidth || 0, h: video.videoHeight || 0 });
+    }
     setPlayhead(0);
     generateThumbnails(recording.url, value, THUMB_COUNT)
       .then(setThumbnails)
@@ -214,12 +266,122 @@ export function Editor({
     [],
   );
 
+  // --- zoom regions -------------------------------------------------------
+
+  function handleAddZoom() {
+    const region = editor.addZoom(playhead);
+    if (!region) {
+      toast.error("No room for a zoom here.");
+      return;
+    }
+    pause();
+    handleSeek((region.start + region.end) / 2);
+  }
+
+  function handleSelectZoom(id: string | null) {
+    editor.selectZoom(id);
+    if (!id) return;
+    const region = editor.zooms.find((z) => z.id === id);
+    if (region && (playhead < region.start || playhead > region.end)) {
+      pause();
+      handleSeek((region.start + region.end) / 2);
+    }
+  }
+
+  // Live zoom preview: a rAF loop maps the playhead through the zoom regions
+  // to a CSS transform on the video element (60fps, no React re-renders).
+  const zoomsRef = useRef(zooms);
+  useEffect(() => {
+    zoomsRef.current = zooms;
+  });
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const video = videoRef.current;
+      if (video && video.videoWidth > 0) {
+        const state = zoomStateAt(zoomsRef.current, video.currentTime);
+        const transform = cssZoomTransform(
+          state,
+          video.videoWidth,
+          video.videoHeight,
+        );
+        if (video.style.transform !== transform) {
+          video.style.transform = transform;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Scale-slider drags collapse into one undo step.
+  const scaleDirtyRef = useRef(false);
+
+  // --- focal-point dot: drag on the preview to aim the zoom ---------------
+  const dotDragRef = useRef(false);
+  const dotDirtyRef = useRef(false);
+
+  const styled = frameStyle.background !== "none" && dims.w > 0 && dims.h > 0;
+  const bg = backgroundById(frameStyle.background);
+  const stagePs = dims.w > 0 && containerWidth > 0 ? containerWidth / dims.w : 0;
+  const stageRect = styled
+    ? videoRect(dims.w, dims.h, frameStyle.padding)
+    : { x: 0, y: 0, w: dims.w, h: dims.h };
+
+  function dotPosition(): { left: number; top: number } | null {
+    if (!selectedZoom || dims.w === 0 || stagePs === 0) return null;
+    const state = zoomStateAt(zooms, playhead);
+    const crop = cropRect(state, dims.w, dims.h);
+    const left =
+      (stageRect.x + ((selectedZoom.x * dims.w - crop.x) / crop.w) * stageRect.w) *
+      stagePs;
+    const top =
+      (stageRect.y + ((selectedZoom.y * dims.h - crop.y) / crop.h) * stageRect.h) *
+      stagePs;
+    return { left, top };
+  }
+
+  function handleDotPointerDown(event: React.PointerEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    dotDragRef.current = true;
+  }
+
+  function handleDotPointerMove(event: React.PointerEvent) {
+    if (!dotDragRef.current || !selectedZoom || !stageRef.current) return;
+    if (dims.w === 0 || stagePs === 0) return;
+    if (!dotDirtyRef.current) {
+      dotDirtyRef.current = true;
+      editor.checkpoint();
+    }
+    const bounds = stageRef.current.getBoundingClientRect();
+    const state = zoomStateAt(zooms, playhead);
+    const crop = cropRect(state, dims.w, dims.h);
+    const vx = (event.clientX - bounds.left) / stagePs - stageRect.x;
+    const vy = (event.clientY - bounds.top) / stagePs - stageRect.y;
+    const sx = crop.x + (vx / stageRect.w) * crop.w;
+    const sy = crop.y + (vy / stageRect.h) * crop.h;
+    editor.updateZoom(selectedZoom.id, { x: sx / dims.w, y: sy / dims.h });
+  }
+
+  function handleDotPointerUp(event: React.PointerEvent) {
+    dotDragRef.current = false;
+    dotDirtyRef.current = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  }
+
   // --- keyboard shortcuts (stable listener via an actions ref) ---
   const actionsRef = useRef({
     togglePlay,
     split: () => editor.split(playhead),
-    removeSelected: () => selectedId && editor.remove(selectedId),
+    removeSelected: () => {
+      if (selectedZoomId) editor.removeZoom(selectedZoomId);
+      else if (selectedId) editor.remove(selectedId);
+    },
     toggleMute: () => selected && editor.setMuted(selected.id, !selected.muted),
+    addZoom: handleAddZoom,
     zoomIn,
     zoomOut,
     undo: editor.undo,
@@ -229,9 +391,13 @@ export function Editor({
     actionsRef.current = {
       togglePlay,
       split: () => editor.split(playhead),
-      removeSelected: () => selectedId && editor.remove(selectedId),
+      removeSelected: () => {
+        if (selectedZoomId) editor.removeZoom(selectedZoomId);
+        else if (selectedId) editor.remove(selectedId);
+      },
       toggleMute: () =>
         selected && editor.setMuted(selected.id, !selected.muted),
+      addZoom: handleAddZoom,
       zoomIn,
       zoomOut,
       undo: editor.undo,
@@ -275,6 +441,10 @@ export function Editor({
         case "S":
           a.split();
           break;
+        case "z":
+        case "Z":
+          a.addZoom();
+          break;
         case "Delete":
         case "Backspace":
           a.removeSelected();
@@ -299,10 +469,11 @@ export function Editor({
 
   async function handleExport() {
     const isMp4 = recording.mimeType.includes("mp4");
-    // Pure cut/trim (no speed or mute) can be stream-copied losslessly; edits
-    // with effects still need a re-encode.
-    const cutOnly = editor.segments.every((s) => s.speed === 1 && !s.muted);
-    const filename = downloadName(recording.mimeType, isEdited);
+    // Pure cut/trim (no speed, mute, or scene) can be stream-copied
+    // losslessly; edits with effects still need a re-encode.
+    const cutOnly =
+      editor.segments.every((s) => s.speed === 1 && !s.muted) && !hasScene;
+    const filename = downloadName(recording.mimeType, edited);
     const fullName = downloadName(recording.mimeType, false);
 
     const ffCbs = {
@@ -330,7 +501,7 @@ export function Editor({
 
       // Full recording — mp4 needs its Opus audio remuxed to AAC so native
       // players get sound; webm is left as-is.
-      if (!isEdited) {
+      if (!edited) {
         if (isMp4 && ffmpegOk) {
           finish(await toCompatibleMp4(recording.blob, ffCbs), fullName);
         } else {
@@ -363,7 +534,8 @@ export function Editor({
         }
       }
 
-      // Re-encode: speed/mute edits, oversized recordings, or a failed trim.
+      // Re-encode: speed/mute/scene edits, oversized recordings, or a
+      // failed trim.
       if (!canExportVideo()) {
         saveUrl(recording.url, fullName);
         toast.error(
@@ -376,6 +548,7 @@ export function Editor({
         editor.segments,
         recording.mimeType,
         setProgress,
+        hasScene ? { style: frameStyle, zooms: editor.zooms } : null,
       );
       if (isMp4 && canUseFFmpeg(blob)) blob = await toCompatibleMp4(blob, ffCbs);
       finish(blob, filename);
@@ -390,25 +563,80 @@ export function Editor({
   }
 
   const ready = duration > 0;
+  const dot = dotPosition();
+  const stageMin = Math.min(dims.w, dims.h);
 
   return (
     <div ref={containerRef} className="flex w-full max-w-3xl flex-col gap-5">
       <div className="relative">
-        <video
-          ref={videoRef}
-          key={recording.url}
-          src={recording.url}
-          playsInline
-          onLoadedMetadata={handleLoadedMetadata}
-          onDurationChange={handleDurationChange}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={() => {
-            setPlayingBoth(false);
-            if (measuredRef.current) setPlayhead(editor.duration);
-          }}
-          onClick={togglePlay}
-          className="w-full cursor-pointer rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
-        />
+        {/* The stage mirrors the export scene: background, padded video with
+            rounded corners and shadow, and the live zoom transform. */}
+        <div
+          ref={stageRef}
+          className="relative w-full overflow-hidden rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
+          style={
+            styled
+              ? {
+                  aspectRatio: `${dims.w} / ${dims.h}`,
+                  background: bg.css,
+                }
+              : undefined
+          }
+        >
+          <div
+            className={cn(
+              "overflow-hidden",
+              styled ? "absolute bg-black" : "relative w-full",
+            )}
+            style={
+              styled
+                ? {
+                    left: stageRect.x * stagePs,
+                    top: stageRect.y * stagePs,
+                    width: stageRect.w * stagePs,
+                    height: stageRect.h * stagePs,
+                    borderRadius: radiusPx(frameStyle, stageRect) * stagePs,
+                    boxShadow:
+                      frameStyle.shadow > 0
+                        ? `0 ${frameStyle.shadow * stageMin * 0.025 * stagePs}px ${
+                            frameStyle.shadow * stageMin * 0.1 * stagePs
+                          }px rgba(0,0,0,${0.25 + frameStyle.shadow * 0.45})`
+                        : undefined,
+                  }
+                : undefined
+            }
+          >
+            <video
+              ref={videoRef}
+              key={recording.url}
+              src={recording.url}
+              playsInline
+              onLoadedMetadata={handleLoadedMetadata}
+              onDurationChange={handleDurationChange}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={() => {
+                setPlayingBoth(false);
+                if (measuredRef.current) setPlayhead(editor.duration);
+              }}
+              onClick={togglePlay}
+              className={cn(
+                "origin-top-left cursor-pointer",
+                styled ? "h-full w-full" : "w-full",
+              )}
+            />
+          </div>
+
+          {/* Focal point of the selected zoom — drag to re-aim. */}
+          {ready && dot && (
+            <div
+              onPointerDown={handleDotPointerDown}
+              onPointerMove={handleDotPointerMove}
+              onPointerUp={handleDotPointerUp}
+              className="absolute z-10 size-5 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-full border-2 border-red bg-red/30 shadow-[0_0_0_3px_rgba(0,0,0,0.35)]"
+              style={{ left: dot.left, top: dot.top }}
+            />
+          )}
+        </div>
         {!ready && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-xl bg-background/40">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -481,12 +709,20 @@ export function Editor({
           <Timeline
             duration={duration}
             segments={segments}
+            zooms={zooms}
             selectedId={selectedId}
+            selectedZoomId={selectedZoomId}
             playhead={playhead}
             pxPerSec={pxPerSec}
             thumbnails={thumbnails}
             onSeek={handleSeek}
-            onSelect={editor.select}
+            onSelect={(id) => {
+              editor.select(id);
+              if (!id) editor.selectZoom(null);
+            }}
+            onSelectZoom={handleSelectZoom}
+            onZoomDragStart={editor.checkpoint}
+            onZoomChange={editor.updateZoom}
           />
 
           {/* Editing toolbar */}
@@ -546,10 +782,71 @@ export function Editor({
               {selected ? `${selected.speed}×` : "1×"}
             </Button>
 
+            <span className="mx-1 h-5 w-px bg-border" />
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAddZoom}
+              className="gap-1.5"
+            >
+              <Focus className="size-3.5" />
+              Zoom
+            </Button>
+
             <span className="ml-auto font-mono text-xs text-muted-foreground/70">
-              {selected ? "segment selected" : "click the timeline to select"}
+              {selectedZoom
+                ? "zoom selected"
+                : selected
+                  ? "segment selected"
+                  : "click the timeline to select"}
             </span>
           </div>
+
+          {/* Zoom controls — shown while a zoom region is selected. */}
+          {selectedZoom && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface/60 p-3">
+              <span className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+                Zoom
+              </span>
+              <div className="flex min-w-40 flex-1 items-center gap-2">
+                <Slider
+                  value={[selectedZoom.scale]}
+                  min={1.2}
+                  max={ZOOM_MAX_SCALE}
+                  step={0.1}
+                  onValueChange={(v) => {
+                    if (!scaleDirtyRef.current) {
+                      scaleDirtyRef.current = true;
+                      editor.checkpoint();
+                    }
+                    editor.updateZoom(selectedZoom.id, {
+                      scale: sliderValue(v),
+                    });
+                  }}
+                  onValueCommitted={() => {
+                    scaleDirtyRef.current = false;
+                  }}
+                />
+                <span className="w-10 shrink-0 font-mono text-xs text-muted-foreground">
+                  {selectedZoom.scale.toFixed(1)}×
+                </span>
+              </div>
+              <span className="hidden font-mono text-[11px] text-muted-foreground/70 sm:inline">
+                drag the dot in the preview to aim
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => editor.removeZoom(selectedZoom.id)}
+                aria-label="Remove zoom"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          )}
+
+          <FramePanel style={frameStyle} onChange={applyFrameStyle} />
 
           {/* Actions */}
           <div className="flex flex-col-reverse items-center gap-4 border-t border-border pt-5 sm:flex-row sm:justify-between">
@@ -558,7 +855,7 @@ export function Editor({
                 {format}
               </span>
               {formatBytes(recording.size)}
-              {isEdited && (
+              {edited && (
                 <>
                   <span aria-hidden>·</span>
                   <span className="text-red">
@@ -593,7 +890,7 @@ export function Editor({
                 ) : (
                   <>
                     <Download className="size-4" />
-                    {isEdited ? "Export clip" : "Download"}
+                    {edited ? "Export clip" : "Download"}
                   </>
                 )}
               </Button>
@@ -602,15 +899,16 @@ export function Editor({
 
           {!exportSupported && (
             <p className="text-center text-xs text-muted-foreground">
-              Trims export losslessly here; speed and mute edits aren&apos;t
-              supported in this browser (you&apos;d get the full recording).
+              Trims export losslessly here; speed, mute, zoom, and frame edits
+              aren&apos;t supported in this browser (you&apos;d get the full
+              recording).
             </p>
           )}
 
           <p className="text-center font-mono text-xs text-muted-foreground/70">
-            <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Del</Kbd> delete ·{" "}
-            <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom · <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd>{" "}
-            undo
+            <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Z</Kbd> zoom ·{" "}
+            <Kbd>Del</Kbd> delete · <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom ·{" "}
+            <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd> undo
           </p>
         </>
       )}
