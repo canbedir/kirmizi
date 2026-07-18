@@ -1,6 +1,6 @@
 "use client";
 
-import { FileVideo, Mic, Scissors, ShieldCheck, Zap } from "lucide-react";
+import { FileVideo, Focus, Mic, Scissors, ShieldCheck, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Reveal } from "@/components/landing/reveal";
@@ -33,7 +33,12 @@ const features: Feature[] = [
   {
     icon: Scissors,
     title: "In-browser editor",
-    body: "Multi-cut timeline with mute, speed, and undo.",
+    body: "Multi-cut timeline with mute, speed, zoom, and undo.",
+  },
+  {
+    icon: Focus,
+    title: "Studio-style finish",
+    body: "Animated zooms, styled frames, and a webcam bubble you can restyle after recording.",
   },
   {
     icon: FileVideo,

@@ -33,11 +33,12 @@ of the architecture, not a policy.
 | Local-only capture  | The file is built on the device and never uploaded.                         |
 | No account          | No sign-up, no watermark, no tracking.                                       |
 | Audio               | Microphone capture mixed with system audio via the Web Audio API.           |
-| Webcam overlay      | An optional camera bubble composited onto a canvas, fully configurable.      |
-| In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, and undo/redo. |
+| Webcam track        | The camera records as its own track — move, resize, and restyle the bubble after recording. |
+| In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, animated zoom regions, and undo/redo. |
+| Frame styling       | Background presets, padding, rounded corners, and shadow, rendered into the export. |
 | Export formats      | MP4 when the browser can encode it, WebM everywhere else.                    |
 | Capture settings    | Resolution, frame rate, and countdown, chosen before recording.             |
-| Keyboard shortcuts  | `R` record · `S` stop / split · `Space` play · `Ctrl`+`Z` undo.             |
+| Keyboard shortcuts  | `R` record · `S` stop / split · `Z` zoom · `Space` play · `Ctrl`+`Z` undo.  |
 
 ## Architecture
 
@@ -49,7 +50,7 @@ a small set of web-platform APIs:
 | ----------------------------------- | ------------------------------------------------ |
 | `navigator.mediaDevices.getDisplayMedia()` | Screen, window, or tab capture.           |
 | `getUserMedia()` + Web Audio API    | Microphone capture and audio mixing.             |
-| `<canvas>` + `captureStream()`      | Webcam compositing and edited-clip re-encoding.  |
+| `<canvas>` + `captureStream()`      | Scene rendering (frames, zooms, webcam) and edited-clip re-encoding. |
 | `MediaRecorder`                     | Encoding the stream to a `Blob`.                 |
 | `URL.createObjectURL` + `<a download>` | Saving the file locally.                      |
 

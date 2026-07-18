@@ -14,8 +14,8 @@ const steps = [
     body: "A 3·2·1 countdown, then a quiet HUD with a live timer. Add your mic or a webcam bubble if you want them.",
   },
   {
-    title: "Trim & download",
-    body: "Cut it down in the in-browser editor and download the file — straight from your machine, no upload.",
+    title: "Polish & download",
+    body: "Cut it down, add a zoom or a styled frame, and download the file — straight from your machine, no upload.",
   },
 ];
 
