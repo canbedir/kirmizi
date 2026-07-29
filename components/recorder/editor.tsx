@@ -50,6 +50,7 @@ import {
   type CursorStyle,
 } from "@/lib/cursor-track";
 import { drawCursorLayer, type SceneCursor } from "@/lib/render-scene";
+import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -312,6 +313,15 @@ export function Editor({
     }
     video.currentTime = t;
     applySegment(video, seg);
+    if (!clickAudioRef.current && typeof AudioContext !== "undefined") {
+      const ctx = new AudioContext();
+      clickAudioRef.current = {
+        ctx,
+        voice: createClickVoice(ctx, ctx.destination),
+      };
+    }
+    clickAudioRef.current?.ctx.resume().catch(() => {});
+    lastHeardRef.current = t;
     setPlayingBoth(true);
     video.play().catch(() => setPlayingBoth(false));
   }, [editor.segments, playhead, setPlayingBoth]);
@@ -394,6 +404,32 @@ export function Editor({
     frameW: number;
     frameH: number;
   }>({ cursor: null, w: 0, h: 0, radius: 0, frameW: 0, frameH: 0 });
+
+  // Click sounds during preview playback. The context is created on the
+  // first play (a user gesture by then) and reused after that.
+  const clickAudioRef = useRef<{
+    ctx: AudioContext;
+    voice: ClickVoice;
+  } | null>(null);
+  const soundRef = useRef<{ clicks: number[]; enabled: boolean }>({
+    clicks: [],
+    enabled: false,
+  });
+  const lastHeardRef = useRef(0);
+  useEffect(() => {
+    soundRef.current = {
+      clicks: cursorTrack ? cursorTrack.clicks.map((c) => c.t / 1000) : [],
+      enabled: !!cursorTrack && cursorStyle.sound,
+    };
+  });
+  useEffect(
+    () => () => {
+      clickAudioRef.current?.voice.dispose();
+      clickAudioRef.current?.ctx.close().catch(() => {});
+      clickAudioRef.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -409,6 +445,24 @@ export function Editor({
           video.style.transform = transform;
         }
       }
+      // Fire a click sound whenever playback crosses one.
+      const sound = soundRef.current;
+      if (video && playingRef.current && sound.enabled) {
+        const now = video.currentTime;
+        const prev = lastHeardRef.current;
+        if (now > prev && now - prev < 1) {
+          const audio = clickAudioRef.current;
+          if (audio) {
+            for (const at of sound.clicks) {
+              if (at > prev && at <= now) audio.voice.play(audio.ctx.currentTime);
+            }
+          }
+        }
+        lastHeardRef.current = now;
+      } else if (video) {
+        lastHeardRef.current = video.currentTime;
+      }
+
       // Redraw the cursor overlay with the very same routine the export
       // uses, so the preview is a true preview.
       const overlay = cursorCanvasRef.current;

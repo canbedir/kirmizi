@@ -25,6 +25,12 @@ export function SiteFooter() {
                 {link.label}
               </Link>
             ))}
+            <Link
+              href="/privacy"
+              className="transition-colors hover:text-foreground"
+            >
+              Privacy
+            </Link>
             <a
               href={siteConfig.githubUrl}
               target="_blank"

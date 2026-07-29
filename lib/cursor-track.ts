@@ -45,6 +45,8 @@ export interface CursorStyle {
   smoothing: number;
   /** Draw a ripple where each click landed. */
   clicks: boolean;
+  /** Mix a synthesised click into the audio at each click. */
+  sound: boolean;
 }
 
 export const DEFAULT_CURSOR_STYLE: CursorStyle = {
@@ -52,6 +54,7 @@ export const DEFAULT_CURSOR_STYLE: CursorStyle = {
   size: 0.05,
   smoothing: 0.55,
   clicks: true,
+  sound: false,
 };
 
 export function hasCursorData(track: CursorTrack | null | undefined): boolean {

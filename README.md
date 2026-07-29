@@ -36,7 +36,7 @@ of the architecture, not a policy.
 | Webcam track        | The camera records as its own track — move, resize, and restyle the bubble after recording. |
 | In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, animated zoom regions, and undo/redo. |
 | Frame styling       | Background presets, padding, rounded corners, and shadow, rendered into the export. |
-| Cursor & auto zoom  | With the optional companion extension: a smoothed pointer, click ripples, and zooms proposed from where you clicked. |
+| Cursor & auto zoom  | With the optional companion extension: a smoothed pointer, click ripples and sounds, and zooms proposed from where you clicked. |
 | Export formats      | MP4 when the browser can encode it, WebM everywhere else.                    |
 | Capture settings    | Resolution, frame rate, and countdown, chosen before recording.             |
 | Keyboard shortcuts  | `R` record · `S` stop / split · `Z` zoom · `Space` play · `Ctrl`+`Z` undo.  |

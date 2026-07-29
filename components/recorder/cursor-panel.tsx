@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, EyeOff, MousePointer2, Waves } from "lucide-react";
+import { Eye, EyeOff, MousePointer2, Volume2, Waves } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { CursorStyle } from "@/lib/cursor-track";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,18 @@ export function CursorPanel({
       >
         Clicks
         <span className="font-mono text-[11px] opacity-70">{clickCount}</span>
+      </Button>
+
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={() => onChange({ ...style, sound: !style.sound })}
+        aria-label={style.sound ? "Mute click sound" : "Add click sound"}
+        aria-pressed={style.sound}
+        title={style.sound ? "Click sound on" : "Click sound off"}
+        className={cn(style.sound && "text-red")}
+      >
+        <Volume2 className="size-4" />
       </Button>
     </div>
   );

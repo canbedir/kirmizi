@@ -3,6 +3,7 @@
 import type { Segment } from "@/lib/use-video-editor";
 import { drawSceneFrame, type Scene } from "@/lib/render-scene";
 import { sceneActive } from "@/lib/scene";
+import { createClickVoice } from "@/lib/click-sound";
 
 type CaptureableVideo = HTMLVideoElement & {
   captureStream?: () => MediaStream;
@@ -196,6 +197,14 @@ export async function exportSegments(
       resolve(new Blob(chunks, { type: recorder.mimeType || mimeType }));
   });
 
+  // Click sounds are mixed into the same destination as the recording's own
+  // audio, so they land in the exported file rather than just the preview.
+  const clickTrack = scene?.cursor?.track;
+  const clickVoice =
+    scene?.cursor?.style.sound && clickTrack?.clicks.length
+      ? createClickVoice(audioCtx, dest)
+      : null;
+
   const total = segments.reduce(
     (sum, s) => sum + (s.end - s.start) / s.speed,
     0,
@@ -217,6 +226,19 @@ export async function exportSegments(
       );
       camVideo.play().catch(() => {});
     }
+    // Schedule this segment's clicks against the clock we're about to start
+    // playing on, compressed by the segment's own speed.
+    if (clickVoice && clickTrack) {
+      const base = audioCtx.currentTime;
+      for (const click of clickTrack.clicks) {
+        const at = click.t / 1000;
+        if (at < segment.start || at > segment.end) continue;
+        clickVoice.play(
+          base + (at - segment.start) / segment.speed,
+          click.button === 2,
+        );
+      }
+    }
     await playUntil(video, segment.end, (current) => {
       const within = (current - segment.start) / segment.speed;
       onProgress?.(Math.min(1, (elapsed + within) / total));
@@ -228,6 +250,7 @@ export async function exportSegments(
 
   const blob = await done;
   stopTicker?.();
+  clickVoice?.dispose();
   if (camVideo) {
     camVideo.removeAttribute("src");
     camVideo.load();

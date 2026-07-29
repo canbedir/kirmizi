@@ -11,6 +11,8 @@ let events = [];
 // collector's sampling rate this is roughly three hours of movement.
 const MAX_EVENTS = 1_500_000;
 
+// Only tab ids are read here, which chrome.tabs.query returns without the
+// "tabs" permission — so the extension never asks for one.
 function broadcast(message) {
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
