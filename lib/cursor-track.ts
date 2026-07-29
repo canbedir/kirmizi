@@ -215,10 +215,31 @@ const SPREAD_BUDGET = 0.55;
  * important rule for making this feel deliberate rather than automatic.
  */
 const MERGE_GAP = 1.6;
+/**
+ * Merging is only worth it while the combined framing still earns its keep.
+ * Two anchors at opposite corners fit in one shot, but only at a
+ * magnification so slight it may as well not be there — better to zoom each
+ * properly and let the travel between them be the pull-out.
+ */
+const MERGE_MIN_SCALE = 1.5;
+/** Below this gap, merge regardless: anything else reads as a flicker. */
+const FLICKER_GAP = 0.45;
 /** Zooms shorter than this aren't worth the movement. */
 const MIN_USEFUL = 1.2;
 /** Leave the first and last moments alone so the clip opens and closes flat. */
 const EDGE_GUARD = 0.35;
+/**
+ * How small a box the pointer must stay inside to count as settled. Keep it
+ * tight: a loose box lets a dwell swallow the tail of the travel that led
+ * into it, which drags neighbouring regions together.
+ */
+const DWELL_BOX = 0.05;
+/** And for how long. */
+const MIN_DWELL = 1.5;
+/** Breathing room either side of a dwell. */
+const DWELL_PAD = 0.3;
+/** A resting pointer earns a gentler push-in than a click does. */
+const DWELL_MAX_SCALE = 1.9;
 
 function uid(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID
@@ -226,14 +247,111 @@ function uid(): string {
     : Math.random().toString(36).slice(2);
 }
 
+/** One thing worth looking at, and when. */
+interface Anchor {
+  start: number;
+  end: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  /** Anchored by a click rather than by the pointer settling somewhere. */
+  strong: boolean;
+}
+
+function boundsOf(points: { x: number; y: number }[]) {
+  let minX = 1;
+  let maxX = 0;
+  let minY = 1;
+  let maxY = 0;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+/** Bursts of clicks, each one an anchor with a lead-in and a tail. */
+function clickAnchors(clicks: CursorClick[]): Anchor[] {
+  const sorted = [...clicks].sort((a, b) => a.t - b.t);
+  const bursts: CursorClick[][] = [];
+  let current: CursorClick[] = [];
+  for (const click of sorted) {
+    const prev = current[current.length - 1];
+    if (prev && (click.t - prev.t) / 1000 > CLUSTER_GAP) {
+      bursts.push(current);
+      current = [];
+    }
+    current.push(click);
+  }
+  if (current.length) bursts.push(current);
+
+  return bursts.map((burst) => ({
+    start: burst[0].t / 1000 - LEAD,
+    end: burst[burst.length - 1].t / 1000 + TAIL,
+    ...boundsOf(burst),
+    strong: true,
+  }));
+}
+
+/**
+ * Stretches where the pointer stays put. Plenty of recordings — reading
+ * through a page, talking over one spot — have almost no clicks in them, and
+ * click-only zooming leaves those completely flat. Where the pointer settles
+ * is the next best signal for where the viewer should be looking.
+ */
+function dwellAnchors(samples: CursorSample[]): Anchor[] {
+  const out: Anchor[] = [];
+  let i = 0;
+  while (i < samples.length) {
+    let j = i;
+    let minX = samples[i].x;
+    let maxX = samples[i].x;
+    let minY = samples[i].y;
+    let maxY = samples[i].y;
+    // Grow while everything seen so far still fits in a small box — that
+    // rules out a slow drift across the screen counting as staying put.
+    while (j + 1 < samples.length) {
+      const next = samples[j + 1];
+      const nMinX = Math.min(minX, next.x);
+      const nMaxX = Math.max(maxX, next.x);
+      const nMinY = Math.min(minY, next.y);
+      const nMaxY = Math.max(maxY, next.y);
+      if (nMaxX - nMinX > DWELL_BOX || nMaxY - nMinY > DWELL_BOX) break;
+      minX = nMinX;
+      maxX = nMaxX;
+      minY = nMinY;
+      maxY = nMaxY;
+      j++;
+    }
+    if ((samples[j].t - samples[i].t) / 1000 >= MIN_DWELL) {
+      out.push({
+        start: samples[i].t / 1000 - DWELL_PAD,
+        end: samples[j].t / 1000 + DWELL_PAD,
+        minX,
+        maxX,
+        minY,
+        maxY,
+        strong: false,
+      });
+      i = j + 1;
+    } else {
+      i++;
+    }
+  }
+  return out;
+}
+
 /**
  * Build zoom regions from what the user actually did.
  *
- * Clicks are grouped into bursts, each burst becomes a candidate window, and
- * candidates that sit close together are merged — pulling out for half a
- * second only to dive back in is the thing that makes automatic zoom look
- * automatic. Each surviving region is then framed on the clicks it covers,
- * with the magnification backed off far enough that every one of them stays
+ * Two signals feed it: bursts of clicks, and stretches where the pointer
+ * settles somewhere. Anchors that sit close together are merged — pulling out
+ * for half a second only to dive straight back in is the thing that makes
+ * automatic zoom look automatic. Each surviving region is framed on what it
+ * covers, with the magnification backed off far enough that all of it stays
  * inside the shot.
  *
  * Regions colliding with `existing` (hand-placed) zooms are dropped: the
@@ -244,81 +362,70 @@ export function autoZoomRegions(
   duration: number,
   existing: ZoomRegion[] = [],
 ): ZoomRegion[] {
-  const clicks = [...track.clicks].sort((a, b) => a.t - b.t);
-  if (!clicks.length || duration <= 0) return [];
+  if (duration <= 0) return [];
 
-  // 1. Group clicks into bursts.
-  const bursts: CursorClick[][] = [];
-  let current: CursorClick[] = [];
-  for (const click of clicks) {
-    const prev = current[current.length - 1];
-    if (prev && (click.t - prev.t) / 1000 > CLUSTER_GAP) {
-      bursts.push(current);
-      current = [];
-    }
-    current.push(click);
-  }
-  if (current.length) bursts.push(current);
+  const anchors = [
+    ...clickAnchors(track.clicks),
+    ...dwellAnchors(track.samples),
+  ].sort((a, b) => a.start - b.start);
+  if (!anchors.length) return [];
 
-  // 2. Candidate windows, kept away from the very start and end.
+  // Keep away from the very start and end so the clip opens and closes flat.
   const lo = Math.min(EDGE_GUARD, duration / 4);
   const hi = Math.max(duration - EDGE_GUARD, duration * 0.75);
-  interface Candidate {
-    start: number;
-    end: number;
-    clicks: CursorClick[];
-  }
-  const candidates: Candidate[] = [];
-  for (const burst of bursts) {
-    const start = clamp(burst[0].t / 1000 - LEAD, lo, hi);
-    const end = clamp(burst[burst.length - 1].t / 1000 + TAIL, lo, hi);
+
+  const merged: Anchor[] = [];
+  for (const anchor of anchors) {
+    const start = clamp(anchor.start, lo, hi);
+    const end = clamp(anchor.end, lo, hi);
     if (end <= start) continue;
-    candidates.push({ start, end, clicks: burst });
-  }
+    const window: Anchor = { ...anchor, start, end };
 
-  // 3. Merge anything that would otherwise flicker apart and back together.
-  const merged: Candidate[] = [];
-  for (const candidate of candidates) {
     const last = merged[merged.length - 1];
-    if (last && candidate.start - last.end < MERGE_GAP) {
-      last.end = Math.max(last.end, candidate.end);
-      last.clicks = last.clicks.concat(candidate.clicks);
-    } else {
-      merged.push({ ...candidate });
+    const gap = last ? window.start - last.end : Infinity;
+    if (last && gap < MERGE_GAP) {
+      const unionSpread = Math.max(
+        Math.max(last.maxX, window.maxX) - Math.min(last.minX, window.minX),
+        Math.max(last.maxY, window.maxY) - Math.min(last.minY, window.minY),
+      );
+      const worthMerging =
+        unionSpread <= SPREAD_BUDGET / MERGE_MIN_SCALE || gap < FLICKER_GAP;
+      if (worthMerging) {
+        last.end = Math.max(last.end, window.end);
+        last.minX = Math.min(last.minX, window.minX);
+        last.maxX = Math.max(last.maxX, window.maxX);
+        last.minY = Math.min(last.minY, window.minY);
+        last.maxY = Math.max(last.maxY, window.maxY);
+        last.strong = last.strong || window.strong;
+        continue;
+      }
     }
+    merged.push(window);
   }
 
-  // 4. Frame each region on the clicks it ended up containing.
   const out: ZoomRegion[] = [];
   for (const window of merged) {
     if (window.end - window.start < Math.max(MIN_USEFUL, ZOOM_MIN_LENGTH)) {
       continue;
     }
-
-    let minX = 1;
-    let maxX = 0;
-    let minY = 1;
-    let maxY = 0;
-    for (const c of window.clicks) {
-      minX = Math.min(minX, c.x);
-      maxX = Math.max(maxX, c.x);
-      minY = Math.min(minY, c.y);
-      maxY = Math.max(maxY, c.y);
-    }
-    const spread = Math.max(maxX - minX, maxY - minY);
+    const spread = Math.max(
+      window.maxX - window.minX,
+      window.maxY - window.minY,
+    );
+    // A click burst earns a closer look than a resting pointer does.
+    const ceiling = window.strong ? ZOOM_MAX_SCALE : DWELL_MAX_SCALE;
     const scale =
-      spread > 0.001 ? clamp(SPREAD_BUDGET / spread, 1.35, ZOOM_MAX_SCALE) : 2;
+      spread > 0.001 ? clamp(SPREAD_BUDGET / spread, 1.35, ceiling) : 1.8;
 
     const region: ZoomRegion = {
       id: uid(),
       start: window.start,
       end: window.end,
-      x: (minX + maxX) / 2,
-      y: (minY + maxY) / 2,
+      x: (window.minX + window.maxX) / 2,
+      y: (window.minY + window.maxY) / 2,
       scale: Math.round(scale * 10) / 10,
       auto: true,
     };
-
     if (existing.some((z) => region.start < z.end && z.start < region.end)) {
       continue;
     }

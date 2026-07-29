@@ -31,6 +31,16 @@ export function CursorPanel({
   zoomCount: number;
   onChange: (style: CursorStyle) => void;
 }) {
+  // Say what happened rather than leaving a lit-up button doing nothing.
+  const note =
+    style.autoZoom && zoomCount === 0
+      ? clickCount === 0
+        ? "Nothing to zoom into — the pointer kept moving and never settled, and no clicks were recorded. Only clicks inside a page are captured, not ones on the browser's own toolbar or another app."
+        : "No moment stood out enough to zoom into. Add one yourself with the Zoom button."
+      : style.sound && clickCount === 0
+        ? "No clicks were recorded, so there's nothing for the click sound to play on."
+        : null;
+
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -98,6 +108,12 @@ export function CursorPanel({
           Redraw pointer
         </Button>
       </div>
+
+      {note && (
+        <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/80">
+          {note}
+        </p>
+      )}
 
       {style.show && (
         <>

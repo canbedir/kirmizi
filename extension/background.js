@@ -24,6 +24,10 @@ function broadcast(message) {
   });
 }
 
+// How long to let collectors hand over their last partial batch on stop.
+// Comfortably more than their flush interval.
+const DRAIN_MS = 450;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message?.type) {
     case "start":
@@ -34,12 +38,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
 
     case "stop": {
-      recording = false;
+      // Telling the collectors to stop is asynchronous, so reading the buffer
+      // straight away drops everything still sitting in their batches —
+      // including, reliably, the click that ended the recording. Keep
+      // accepting batches until they've drained.
       broadcast({ type: "collect-stop" });
-      const collected = events;
-      events = [];
-      sendResponse({ ok: true, events: collected });
-      break;
+      setTimeout(() => {
+        recording = false;
+        const collected = events;
+        events = [];
+        sendResponse({ ok: true, events: collected });
+      }, DRAIN_MS);
+      return true; // keep the message channel open for the async reply
     }
 
     case "batch":
