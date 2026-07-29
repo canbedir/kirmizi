@@ -37,6 +37,8 @@ export interface ZoomRegion {
   y: number;
   /** Peak magnification (1 = none). */
   scale: number;
+  /** Generated from the cursor track rather than placed by hand. */
+  auto?: boolean;
 }
 
 export const ZOOM_MIN_LENGTH = 0.4;

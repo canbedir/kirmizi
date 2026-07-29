@@ -37,7 +37,12 @@ export interface CursorTrack {
 }
 
 export interface CursorStyle {
-  /** Draw the synthetic pointer over the recording. */
+  /**
+   * Draw the synthetic pointer over the recording. Off by default: no browser
+   * currently honours `getDisplayMedia({video:{cursor:"never"}})`, so the real
+   * pointer is always baked into the capture and drawing ours on top shows two
+   * — the smoothed one visibly trailing the other.
+   */
   show: boolean;
   /** Pointer height as a fraction of the frame height. */
   size: number;
@@ -47,14 +52,17 @@ export interface CursorStyle {
   clicks: boolean;
   /** Mix a synthesised click into the audio at each click. */
   sound: boolean;
+  /** Build zoom regions from the recorded clicks, without being asked. */
+  autoZoom: boolean;
 }
 
 export const DEFAULT_CURSOR_STYLE: CursorStyle = {
-  show: true,
+  show: false,
   size: 0.05,
   smoothing: 0.55,
   clicks: true,
   sound: false,
+  autoZoom: true,
 };
 
 export function hasCursorData(track: CursorTrack | null | undefined): boolean {
@@ -201,6 +209,16 @@ const LEAD = 0.7;
 const TAIL = 1.3;
 /** Fraction of the zoomed viewport a cluster's clicks may span. */
 const SPREAD_BUDGET = 0.55;
+/**
+ * Two zooms closer than this are merged into one. Pulling out and diving
+ * straight back in reads as a glitch, not as emphasis — the single most
+ * important rule for making this feel deliberate rather than automatic.
+ */
+const MERGE_GAP = 1.6;
+/** Zooms shorter than this aren't worth the movement. */
+const MIN_USEFUL = 1.2;
+/** Leave the first and last moments alone so the clip opens and closes flat. */
+const EDGE_GUARD = 0.35;
 
 function uid(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID
@@ -209,13 +227,17 @@ function uid(): string {
 }
 
 /**
- * Propose zoom regions from what the user actually did: clicks are grouped
- * into bursts, and each burst becomes one zoom framed on the clicks it
- * contains. The magnification backs off when a burst is spread out, so every
- * click in it stays inside the zoomed frame.
+ * Build zoom regions from what the user actually did.
  *
- * Regions that would collide with `existing` (hand-placed) zooms are dropped
- * rather than merged — the user's own edits win.
+ * Clicks are grouped into bursts, each burst becomes a candidate window, and
+ * candidates that sit close together are merged — pulling out for half a
+ * second only to dive back in is the thing that makes automatic zoom look
+ * automatic. Each surviving region is then framed on the clicks it covers,
+ * with the magnification backed off far enough that every one of them stays
+ * inside the shot.
+ *
+ * Regions colliding with `existing` (hand-placed) zooms are dropped: the
+ * user's own edits win.
  */
 export function autoZoomRegions(
   track: CursorTrack,
@@ -225,7 +247,7 @@ export function autoZoomRegions(
   const clicks = [...track.clicks].sort((a, b) => a.t - b.t);
   if (!clicks.length || duration <= 0) return [];
 
-  // Group clicks into bursts.
+  // 1. Group clicks into bursts.
   const bursts: CursorClick[][] = [];
   let current: CursorClick[] = [];
   for (const click of clicks) {
@@ -238,23 +260,46 @@ export function autoZoomRegions(
   }
   if (current.length) bursts.push(current);
 
-  const out: ZoomRegion[] = [];
+  // 2. Candidate windows, kept away from the very start and end.
+  const lo = Math.min(EDGE_GUARD, duration / 4);
+  const hi = Math.max(duration - EDGE_GUARD, duration * 0.75);
+  interface Candidate {
+    start: number;
+    end: number;
+    clicks: CursorClick[];
+  }
+  const candidates: Candidate[] = [];
   for (const burst of bursts) {
-    const start = clamp(burst[0].t / 1000 - LEAD, 0, duration);
-    const end = clamp(
-      burst[burst.length - 1].t / 1000 + TAIL,
-      start + ZOOM_MIN_LENGTH,
-      duration,
-    );
-    if (end - start < ZOOM_MIN_LENGTH) continue;
+    const start = clamp(burst[0].t / 1000 - LEAD, lo, hi);
+    const end = clamp(burst[burst.length - 1].t / 1000 + TAIL, lo, hi);
+    if (end <= start) continue;
+    candidates.push({ start, end, clicks: burst });
+  }
 
-    // Frame the burst: centre on its bounding box, and pick a magnification
-    // that keeps the whole box comfortably inside the zoomed viewport.
+  // 3. Merge anything that would otherwise flicker apart and back together.
+  const merged: Candidate[] = [];
+  for (const candidate of candidates) {
+    const last = merged[merged.length - 1];
+    if (last && candidate.start - last.end < MERGE_GAP) {
+      last.end = Math.max(last.end, candidate.end);
+      last.clicks = last.clicks.concat(candidate.clicks);
+    } else {
+      merged.push({ ...candidate });
+    }
+  }
+
+  // 4. Frame each region on the clicks it ended up containing.
+  const out: ZoomRegion[] = [];
+  for (const window of merged) {
+    if (window.end - window.start < Math.max(MIN_USEFUL, ZOOM_MIN_LENGTH)) {
+      continue;
+    }
+
     let minX = 1;
     let maxX = 0;
     let minY = 1;
     let maxY = 0;
-    for (const c of burst) {
+    for (const c of window.clicks) {
       minX = Math.min(minX, c.x);
       maxX = Math.max(maxX, c.x);
       minY = Math.min(minY, c.y);
@@ -262,22 +307,21 @@ export function autoZoomRegions(
     }
     const spread = Math.max(maxX - minX, maxY - minY);
     const scale =
-      spread > 0.001
-        ? clamp(SPREAD_BUDGET / spread, 1.35, ZOOM_MAX_SCALE)
-        : 2;
+      spread > 0.001 ? clamp(SPREAD_BUDGET / spread, 1.35, ZOOM_MAX_SCALE) : 2;
 
     const region: ZoomRegion = {
       id: uid(),
-      start,
-      end,
+      start: window.start,
+      end: window.end,
       x: (minX + maxX) / 2,
       y: (minY + maxY) / 2,
       scale: Math.round(scale * 10) / 10,
+      auto: true,
     };
 
-    const collides = (list: ZoomRegion[]) =>
-      list.some((z) => region.start < z.end && z.start < region.end);
-    if (collides(existing) || collides(out)) continue;
+    if (existing.some((z) => region.start < z.end && z.start < region.end)) {
+      continue;
+    }
     out.push(region);
   }
 

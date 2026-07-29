@@ -172,7 +172,9 @@ export function drawCursorLayer(
   radius = 0,
 ) {
   const { track, path, style } = cursor;
-  if (!style.show) return;
+  // Ripples stand on their own: they mark clicks, which the captured pointer
+  // never shows. They don't depend on us redrawing the pointer.
+  if (!style.show && !style.clicks) return;
 
   ctx.save();
   roundRectPath(ctx, rect, radius);
@@ -193,7 +195,7 @@ export function drawCursorLayer(
     }
   }
 
-  if (path) {
+  if (style.show && path) {
     const at = cursorAt(path, time);
     if (at) {
       const p = mapPoint(at.x, at.y, crop, rect, frameW, frameH);

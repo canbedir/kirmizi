@@ -17,10 +17,16 @@
   let timer = null;
 
   function sample(event, button) {
+    // screenX/Y are measured from the virtual desktop's origin, so on a
+    // multi-monitor setup they carry the offset of whichever screen this
+    // window is on. availLeft/availTop give that offset, which makes the
+    // fraction relative to the current screen rather than the desktop.
+    const originX = typeof screen.availLeft === "number" ? screen.availLeft : 0;
+    const originY = typeof screen.availTop === "number" ? screen.availTop : 0;
     const point = {
       t: Date.now(),
-      sx: event.screenX / (screen.width || 1),
-      sy: event.screenY / (screen.height || 1),
+      sx: (event.screenX - originX) / (screen.width || 1),
+      sy: (event.screenY - originY) / (screen.height || 1),
     };
     // Viewport coordinates only make sense for the top frame — inside an
     // iframe they're relative to the iframe, not the captured tab.

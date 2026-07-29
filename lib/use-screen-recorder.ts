@@ -260,8 +260,6 @@ export function useScreenRecorder(): UseScreenRecorder {
       startAbortedRef.current = false;
       setStatus("acquiring");
 
-      // With the companion running we draw our own pointer, so ask the
-      // browser to leave the real one out of the capture.
       const companionOk = await companionAvailable();
       setCompanionReady(companionOk);
 
@@ -273,10 +271,11 @@ export function useScreenRecorder(): UseScreenRecorder {
         videoConstraints.width = { max: cap.w };
         videoConstraints.height = { max: cap.h };
       }
-      if (companionOk) {
-        (videoConstraints as MediaTrackConstraints & { cursor?: string }).cursor =
-          "never";
-      }
+      // There's deliberately no attempt to drop the system cursor here: no
+      // browser implements the `cursor` display constraint (it isn't even in
+      // getSupportedConstraints), so the real pointer is always part of the
+      // capture. That's why the editor's synthetic pointer is opt-in — see
+      // CursorStyle.show.
 
       const isCancel = (err: unknown) =>
         err instanceof DOMException &&

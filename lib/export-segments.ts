@@ -117,9 +117,13 @@ export async function exportSegments(
     video.onerror = () => reject(new Error("Couldn't load the recording."));
   });
 
+  // Only a scene with something to *draw* needs the canvas; click sound alone
+  // is mixed through the audio graph either way.
+  const drawsCursor =
+    !!scene?.cursor && (scene.cursor.style.show || scene.cursor.style.clicks);
   const useScene =
     !!scene &&
-    (sceneActive(scene.style, scene.zooms) || !!scene.camera || !!scene.cursor);
+    (sceneActive(scene.style, scene.zooms) || !!scene.camera || drawsCursor);
 
   let videoStream: MediaStream;
   let stopTicker: (() => void) | null = null;
@@ -226,20 +230,20 @@ export async function exportSegments(
       );
       camVideo.play().catch(() => {});
     }
-    // Schedule this segment's clicks against the clock we're about to start
-    // playing on, compressed by the segment's own speed.
-    if (clickVoice && clickTrack) {
-      const base = audioCtx.currentTime;
-      for (const click of clickTrack.clicks) {
-        const at = click.t / 1000;
-        if (at < segment.start || at > segment.end) continue;
-        clickVoice.play(
-          base + (at - segment.start) / segment.speed,
-          click.button === 2,
-        );
-      }
-    }
+    // Fire clicks off the video's own clock as it plays. Scheduling them up
+    // front against the audio clock drifts, because playback doesn't begin
+    // the instant we ask for it.
+    let heard = segment.start;
     await playUntil(video, segment.end, (current) => {
+      if (clickVoice && clickTrack && current > heard) {
+        for (const click of clickTrack.clicks) {
+          const at = click.t / 1000;
+          if (at > heard && at <= current) {
+            clickVoice.play(audioCtx.currentTime, click.button === 2);
+          }
+        }
+        heard = current;
+      }
       const within = (current - segment.start) / segment.speed;
       onProgress?.(Math.min(1, (elapsed + within) / total));
     });

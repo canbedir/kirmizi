@@ -10,7 +10,6 @@ import {
   Redo2,
   RotateCcw,
   Scissors,
-  Sparkles,
   Trash2,
   Undo2,
   Volume2,
@@ -175,9 +174,12 @@ export function Editor({
       cursorTrack ? buildCursorPath(cursorTrack, cursorStyle.smoothing) : null,
     [cursorTrack, cursorStyle.smoothing],
   );
+  // The cursor layer is in play whenever any of its three uses is on — the
+  // pointer, the ripples, or the sound. Each stands alone.
   const sceneCursor: SceneCursor | null = useMemo(
     () =>
-      cursorTrack && cursorStyle.show
+      cursorTrack &&
+      (cursorStyle.show || cursorStyle.clicks || cursorStyle.sound)
         ? { track: cursorTrack, path: cursorPath, style: cursorStyle }
         : null,
     [cursorTrack, cursorPath, cursorStyle],
@@ -215,20 +217,6 @@ export function Editor({
     }
   }
 
-  // Turn the recorded clicks into zoom regions. They land as ordinary
-  // regions, so anything the user doesn't like can be dragged or deleted.
-  function handleAutoZoom() {
-    if (!cursorTrack) return;
-    const regions = autoZoomRegions(cursorTrack, duration, editor.zooms);
-    if (!regions.length) {
-      toast.error("No click bursts left to zoom into.");
-      return;
-    }
-    editor.addZooms(regions);
-    toast.success(`Added ${regions.length} zoom${regions.length > 1 ? "s" : ""}`, {
-      description: "Drag an edge or delete any you don't want.",
-    });
-  }
 
   // --- duration measurement (webm often reports Infinity until sought) ---
   function finalizeDuration(value: number) {
@@ -395,6 +383,24 @@ export function Editor({
   useEffect(() => {
     zoomsRef.current = zooms;
   });
+  // Auto zoom runs on its own as soon as the clip is measured, and undoes
+  // itself when switched off — no button to discover.
+  const autoAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!cursorTrack || duration <= 0) return;
+    if (cursorStyle.autoZoom && !autoAppliedRef.current) {
+      autoAppliedRef.current = true;
+      const manual = zoomsRef.current.filter((z) => !z.auto);
+      editor.setAutoZooms(autoZoomRegions(cursorTrack, duration, manual));
+    } else if (!cursorStyle.autoZoom && autoAppliedRef.current) {
+      autoAppliedRef.current = false;
+      editor.setAutoZooms([]);
+    }
+    // editor.setAutoZooms is stable; zooms are read through a ref on purpose
+    // so regenerating doesn't chase its own output.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorTrack, duration, cursorStyle.autoZoom]);
+
   // Geometry + cursor layer for the preview overlay, read by the rAF loop.
   const overlayRef = useRef<{
     cursor: SceneCursor | null;
@@ -1093,17 +1099,6 @@ export function Editor({
               <Focus className="size-3.5" />
               Zoom
             </Button>
-            {cursorTrack && cursorTrack.clicks.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleAutoZoom}
-                className="gap-1.5 border-red/40 text-red hover:bg-red/10"
-              >
-                <Sparkles className="size-3.5" />
-                Auto zoom
-              </Button>
-            )}
 
             <span className="ml-auto font-mono text-xs text-muted-foreground/70">
               {selectedZoom
@@ -1163,6 +1158,7 @@ export function Editor({
             <CursorPanel
               style={cursorStyle}
               clickCount={cursorTrack.clicks.length}
+              zoomCount={zooms.filter((z) => z.auto).length}
               onChange={applyCursorStyle}
             />
           )}

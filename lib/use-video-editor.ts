@@ -95,6 +95,11 @@ export interface VideoEditor {
   addZoom: (time: number) => ZoomRegion | null;
   /** Add several zooms as one undoable step (used by auto-zoom). */
   addZooms: (regions: ZoomRegion[]) => void;
+  /**
+   * Swap every auto-generated zoom for `regions`, leaving hand-placed ones
+   * alone. One undoable step, so toggling auto zoom is a single Ctrl+Z.
+   */
+  setAutoZooms: (regions: ZoomRegion[]) => void;
   removeZoom: (id: string) => void;
   /** Drop every zoom region in one step. */
   clearZooms: () => void;
@@ -297,6 +302,20 @@ export function useVideoEditor(): VideoEditor {
     [apply],
   );
 
+  const setAutoZooms = useCallback(
+    (regions: ZoomRegion[]) => {
+      apply((prev) => {
+        const manual = prev.zooms.filter((z) => !z.auto);
+        if (!regions.length && manual.length === prev.zooms.length) return prev;
+        return {
+          ...prev,
+          zooms: [...manual, ...regions].sort((a, b) => a.start - b.start),
+        };
+      });
+    },
+    [apply],
+  );
+
   const clearZooms = useCallback(() => {
     apply((prev) => (prev.zooms.length ? { ...prev, zooms: [] } : prev));
     setSelectedZoomId(null);
@@ -427,6 +446,7 @@ export function useVideoEditor(): VideoEditor {
     updateSegment,
     addZoom,
     addZooms,
+    setAutoZooms,
     clearZooms,
     removeZoom,
     updateZoom,
