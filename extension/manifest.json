@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Kırmızı Companion",
+  "version": "1.0.0",
+  "description": "Lets Kırmızı redraw your cursor and zoom into your clicks. Pointer data stays on your device.",
+  "permissions": ["tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://kirmizi.app/*",
+        "https://www.kirmizi.app/*",
+        "http://localhost/*",
+        "https://localhost/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["collector.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

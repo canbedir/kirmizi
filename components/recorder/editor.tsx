@@ -10,6 +10,7 @@ import {
   Redo2,
   RotateCcw,
   Scissors,
+  Sparkles,
   Trash2,
   Undo2,
   Volume2,
@@ -41,15 +42,36 @@ import {
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
 } from "@/lib/camera-layout";
+import {
+  DEFAULT_CURSOR_STYLE,
+  autoZoomRegions,
+  buildCursorPath,
+  hasCursorData,
+  type CursorStyle,
+} from "@/lib/cursor-track";
+import { drawCursorLayer, type SceneCursor } from "@/lib/render-scene";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
 import { CameraPanel } from "@/components/recorder/camera-panel";
+import { CursorPanel } from "@/components/recorder/cursor-panel";
 
 const THUMB_COUNT = 14;
 const FRAME_STYLE_KEY = "kirmizi:frame-style";
+const CURSOR_STYLE_KEY = "kirmizi:cursor-style";
+
+function loadCursorStyle(): CursorStyle {
+  if (typeof window === "undefined") return DEFAULT_CURSOR_STYLE;
+  try {
+    const raw = localStorage.getItem(CURSOR_STYLE_KEY);
+    if (raw) return { ...DEFAULT_CURSOR_STYLE, ...JSON.parse(raw) };
+  } catch {
+    /* corrupted styles fall back to the default */
+  }
+  return DEFAULT_CURSOR_STYLE;
+}
 
 function loadFrameStyle(): FrameStyle {
   if (typeof window === "undefined") return DEFAULT_FRAME_STYLE;
@@ -108,6 +130,10 @@ export function Editor({
   );
   const [camHidden, setCamHidden] = useState(false);
 
+  const cursorTrack = hasCursorData(recording.cursor) ? recording.cursor! : null;
+  const [cursorStyle, setCursorStyle] = useState<CursorStyle>(loadCursorStyle);
+  const cursorCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -142,8 +168,22 @@ export function Editor({
     (s) => playhead > s.start + 0.15 && playhead < s.end - 0.15,
   );
 
+  // The smoothed path only needs rebuilding when the smoothing changes.
+  const cursorPath = useMemo(
+    () =>
+      cursorTrack ? buildCursorPath(cursorTrack, cursorStyle.smoothing) : null,
+    [cursorTrack, cursorStyle.smoothing],
+  );
+  const sceneCursor: SceneCursor | null = useMemo(
+    () =>
+      cursorTrack && cursorStyle.show
+        ? { track: cursorTrack, path: cursorPath, style: cursorStyle }
+        : null,
+    [cursorTrack, cursorPath, cursorStyle],
+  );
+
   const cameraOn = !!camera && !camHidden;
-  const hasScene = sceneActive(frameStyle, zooms) || cameraOn;
+  const hasScene = sceneActive(frameStyle, zooms) || cameraOn || !!sceneCursor;
   const edited = isEdited || hasScene;
 
   const setPlayingBoth = useCallback((value: boolean) => {
@@ -163,6 +203,30 @@ export function Editor({
     } catch {
       /* persistence is best-effort */
     }
+  }
+
+  function applyCursorStyle(style: CursorStyle) {
+    setCursorStyle(style);
+    try {
+      localStorage.setItem(CURSOR_STYLE_KEY, JSON.stringify(style));
+    } catch {
+      /* persistence is best-effort */
+    }
+  }
+
+  // Turn the recorded clicks into zoom regions. They land as ordinary
+  // regions, so anything the user doesn't like can be dragged or deleted.
+  function handleAutoZoom() {
+    if (!cursorTrack) return;
+    const regions = autoZoomRegions(cursorTrack, duration, editor.zooms);
+    if (!regions.length) {
+      toast.error("No click bursts left to zoom into.");
+      return;
+    }
+    editor.addZooms(regions);
+    toast.success(`Added ${regions.length} zoom${regions.length > 1 ? "s" : ""}`, {
+      description: "Drag an edge or delete any you don't want.",
+    });
   }
 
   // --- duration measurement (webm often reports Infinity until sought) ---
@@ -321,6 +385,15 @@ export function Editor({
   useEffect(() => {
     zoomsRef.current = zooms;
   });
+  // Geometry + cursor layer for the preview overlay, read by the rAF loop.
+  const overlayRef = useRef<{
+    cursor: SceneCursor | null;
+    w: number;
+    h: number;
+    radius: number;
+    frameW: number;
+    frameH: number;
+  }>({ cursor: null, w: 0, h: 0, radius: 0, frameW: 0, frameH: 0 });
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -336,6 +409,37 @@ export function Editor({
           video.style.transform = transform;
         }
       }
+      // Redraw the cursor overlay with the very same routine the export
+      // uses, so the preview is a true preview.
+      const overlay = cursorCanvasRef.current;
+      const geo = overlayRef.current;
+      if (overlay && video && geo.w > 0) {
+        const w = Math.max(1, Math.round(geo.w));
+        const h = Math.max(1, Math.round(geo.h));
+        if (overlay.width !== w || overlay.height !== h) {
+          overlay.width = w;
+          overlay.height = h;
+        }
+        const ctx = overlay.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, w, h);
+          if (geo.cursor && geo.frameW > 0) {
+            const state = zoomStateAt(zoomsRef.current, video.currentTime);
+            const crop = cropRect(state, geo.frameW, geo.frameH);
+            drawCursorLayer(
+              ctx,
+              geo.cursor,
+              video.currentTime,
+              crop,
+              { x: 0, y: 0, w, h },
+              geo.frameW,
+              geo.frameH,
+              geo.radius,
+            );
+          }
+        }
+      }
+
       // Keep the webcam track locked to the main video: play state,
       // playback rate, and (drift-corrected) time.
       const cam = camRef.current;
@@ -374,6 +478,19 @@ export function Editor({
   const stageRect = styled
     ? videoRect(dims.w, dims.h, frameStyle.padding)
     : { x: 0, y: 0, w: dims.w, h: dims.h };
+
+  // The overlay canvas is backed at source resolution and scaled down by CSS,
+  // so its geometry matches the export frame exactly.
+  useEffect(() => {
+    overlayRef.current = {
+      cursor: sceneCursor,
+      w: stageRect.w,
+      h: stageRect.h,
+      radius: styled ? radiusPx(frameStyle, stageRect) : 0,
+      frameW: dims.w,
+      frameH: dims.h,
+    };
+  });
 
   function dotPosition(): { left: number; top: number } | null {
     if (!selectedZoom || dims.w === 0 || stagePs === 0) return null;
@@ -630,6 +747,7 @@ export function Editor({
                 cameraOn && camera
                   ? { url: camera.url, layout: camLayout }
                   : null,
+              cursor: sceneCursor,
             }
           : null,
       );
@@ -709,6 +827,14 @@ export function Editor({
                 styled ? "h-full w-full" : "w-full",
               )}
             />
+
+            {/* Redrawn pointer and click ripples. */}
+            {sceneCursor && (
+              <canvas
+                ref={cursorCanvasRef}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+              />
+            )}
 
             {/* Webcam bubble — a sibling of the video so the zoom transform
                 doesn't drag it along. Drag to reposition. */}
@@ -913,6 +1039,17 @@ export function Editor({
               <Focus className="size-3.5" />
               Zoom
             </Button>
+            {cursorTrack && cursorTrack.clicks.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleAutoZoom}
+                className="gap-1.5 border-red/40 text-red hover:bg-red/10"
+              >
+                <Sparkles className="size-3.5" />
+                Auto zoom
+              </Button>
+            )}
 
             <span className="ml-auto font-mono text-xs text-muted-foreground/70">
               {selectedZoom
@@ -967,6 +1104,14 @@ export function Editor({
           )}
 
           <FramePanel style={frameStyle} onChange={applyFrameStyle} />
+
+          {cursorTrack && (
+            <CursorPanel
+              style={cursorStyle}
+              clickCount={cursorTrack.clicks.length}
+              onChange={applyCursorStyle}
+            />
+          )}
 
           {camera && (
             <CameraPanel

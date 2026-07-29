@@ -93,7 +93,11 @@ export interface VideoEditor {
    * Undoable.
    */
   addZoom: (time: number) => ZoomRegion | null;
+  /** Add several zooms as one undoable step (used by auto-zoom). */
+  addZooms: (regions: ZoomRegion[]) => void;
   removeZoom: (id: string) => void;
+  /** Drop every zoom region in one step. */
+  clearZooms: () => void;
   /**
    * Patch a zoom region without touching the undo history — call
    * `checkpoint()` once at the start of a drag/slider gesture so the whole
@@ -282,6 +286,22 @@ export function useVideoEditor(): VideoEditor {
     [apply, freeWindow, selectZoom, zooms],
   );
 
+  const addZooms = useCallback(
+    (regions: ZoomRegion[]) => {
+      if (!regions.length) return;
+      apply((prev) => ({
+        ...prev,
+        zooms: [...prev.zooms, ...regions].sort((a, b) => a.start - b.start),
+      }));
+    },
+    [apply],
+  );
+
+  const clearZooms = useCallback(() => {
+    apply((prev) => (prev.zooms.length ? { ...prev, zooms: [] } : prev));
+    setSelectedZoomId(null);
+  }, [apply]);
+
   const removeZoom = useCallback(
     (id: string) => {
       apply((prev) => ({
@@ -406,6 +426,8 @@ export function useVideoEditor(): VideoEditor {
     setSpeed,
     updateSegment,
     addZoom,
+    addZooms,
+    clearZooms,
     removeZoom,
     updateZoom,
     checkpoint,

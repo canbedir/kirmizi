@@ -117,7 +117,8 @@ export async function exportSegments(
   });
 
   const useScene =
-    !!scene && (sceneActive(scene.style, scene.zooms) || !!scene.camera);
+    !!scene &&
+    (sceneActive(scene.style, scene.zooms) || !!scene.camera || !!scene.cursor);
 
   let videoStream: MediaStream;
   let stopTicker: (() => void) | null = null;

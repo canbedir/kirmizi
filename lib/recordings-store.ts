@@ -5,6 +5,7 @@
 // pull every video into memory.
 
 import type { CameraLayout } from "@/lib/camera-layout";
+import type { CursorTrack } from "@/lib/cursor-track";
 
 const DB_NAME = "kirmizi";
 const DB_VERSION = 1;
@@ -26,6 +27,8 @@ export interface RecordingMeta {
   /** Set when a webcam track was stored alongside the screen recording. */
   cameraMimeType?: string | null;
   cameraLayout?: CameraLayout | null;
+  /** Pointer data from the companion extension, if there was any. */
+  cursor?: CursorTrack | null;
 }
 
 export interface NewRecording {
@@ -39,6 +42,7 @@ export interface NewRecording {
     mimeType: string;
     layout: CameraLayout;
   } | null;
+  cursor?: CursorTrack | null;
 }
 
 function hasIDB(): boolean {
@@ -122,6 +126,7 @@ export async function saveRecording(rec: NewRecording): Promise<void> {
       cover: rec.cover ?? null,
       cameraMimeType: rec.camera?.mimeType ?? null,
       cameraLayout: rec.camera?.layout ?? null,
+      cursor: rec.cursor ?? null,
     };
     const tx = db.transaction([META, BLOBS], "readwrite");
     tx.objectStore(META).put(meta);

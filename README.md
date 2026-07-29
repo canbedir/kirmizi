@@ -36,6 +36,7 @@ of the architecture, not a policy.
 | Webcam track        | The camera records as its own track — move, resize, and restyle the bubble after recording. |
 | In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, animated zoom regions, and undo/redo. |
 | Frame styling       | Background presets, padding, rounded corners, and shadow, rendered into the export. |
+| Cursor & auto zoom  | With the optional companion extension: a smoothed pointer, click ripples, and zooms proposed from where you clicked. |
 | Export formats      | MP4 when the browser can encode it, WebM everywhere else.                    |
 | Capture settings    | Resolution, frame rate, and countdown, chosen before recording.             |
 | Keyboard shortcuts  | `R` record · `S` stop / split · `Z` zoom · `Space` play · `Ctrl`+`Z` undo.  |
@@ -55,6 +56,15 @@ a small set of web-platform APIs:
 | `URL.createObjectURL` + `<a download>` | Saving the file locally.                      |
 
 No database, no authentication, and no server-side media handling are involved.
+
+### The companion extension
+
+A page can't observe the pointer on surfaces it doesn't own, so the cursor and
+auto-zoom features are fed by an optional Chrome extension in
+[`extension/`](./extension). It collects pointer positions and click times in
+the tab being recorded, keeps them in memory, and hands them to the app when
+the recording stops — no storage, no network, and nothing about the pages
+themselves. Without it every other feature works exactly as before.
 
 ## Tech stack
 

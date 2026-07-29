@@ -5,6 +5,15 @@ import {
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
 } from "@/lib/camera-layout";
+import {
+  buildCursorTrack,
+  companionAvailable,
+  companionStart,
+  companionStop,
+  surfaceSupportsCursor,
+  type PauseWindow,
+} from "@/lib/companion";
+import { hasCursorData, type CursorTrack } from "@/lib/cursor-track";
 
 export type RecorderStatus =
   | "idle"
@@ -31,6 +40,8 @@ export interface Recording {
   durationMs: number;
   /** Present when a webcam was recorded; composited in the editor/export. */
   camera?: RecordedCamera | null;
+  /** Present when the companion extension supplied pointer data. */
+  cursor?: CursorTrack | null;
 }
 
 export type Resolution = "auto" | "1440p" | "1080p" | "720p";
@@ -100,6 +111,8 @@ export interface UseScreenRecorder {
   previewStream: MediaStream | null;
   /** The live webcam stream while recording (for the HUD bubble overlay). */
   cameraPreviewStream: MediaStream | null;
+  /** The companion extension is installed, so cursor data can be captured. */
+  companionReady: boolean;
   /** Current countdown value while status is "countdown" (else 0). */
   countdown: number;
   /** A microphone track was captured for this session. */
@@ -124,6 +137,11 @@ export function useScreenRecorder(): UseScreenRecorder {
     useState<MediaStream | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [companionReady, setCompanionReady] = useState(false);
+  // Wall-clock stretches spent paused, subtracted from cursor timestamps.
+  const pausesRef = useRef<PauseWindow[]>([]);
+  const pausedAtRef = useRef(0);
+  const cursorStartedAtRef = useRef(0);
   // Set when the user aborts (stop / reset / native stop) during the countdown.
   const startAbortedRef = useRef(false);
   // Recorded time before the current running stretch (grows on each pause).
@@ -197,11 +215,19 @@ export function useScreenRecorder(): UseScreenRecorder {
       clearTimer();
       accumulatedRef.current += Date.now() - startedAtRef.current;
       setElapsedMs(accumulatedRef.current);
+      pausedAtRef.current = Date.now();
       pausedRef.current = true;
       setPaused(true);
     } else if (recorder.state === "paused") {
       recorder.resume();
       if (camRecorder?.state === "paused") camRecorder.resume();
+      if (pausedAtRef.current) {
+        pausesRef.current.push({
+          start: pausedAtRef.current,
+          end: Date.now(),
+        });
+        pausedAtRef.current = 0;
+      }
       startedAtRef.current = Date.now();
       timerRef.current = window.setInterval(() => {
         setElapsedMs(accumulatedRef.current + (Date.now() - startedAtRef.current));
@@ -234,6 +260,11 @@ export function useScreenRecorder(): UseScreenRecorder {
       startAbortedRef.current = false;
       setStatus("acquiring");
 
+      // With the companion running we draw our own pointer, so ask the
+      // browser to leave the real one out of the capture.
+      const companionOk = await companionAvailable();
+      setCompanionReady(companionOk);
+
       const cap = RESOLUTION_CAPS[options?.resolution ?? "auto"];
       const videoConstraints: MediaTrackConstraints = {
         frameRate: { ideal: options?.fps ?? 30 },
@@ -241,6 +272,10 @@ export function useScreenRecorder(): UseScreenRecorder {
       if (cap) {
         videoConstraints.width = { max: cap.w };
         videoConstraints.height = { max: cap.h };
+      }
+      if (companionOk) {
+        (videoConstraints as MediaTrackConstraints & { cursor?: string }).cursor =
+          "never";
       }
 
       const isCancel = (err: unknown) =>
@@ -292,6 +327,18 @@ export function useScreenRecorder(): UseScreenRecorder {
           return;
         }
       }
+
+      // Pointer data only lines up when the captured surface matches a
+      // coordinate space the companion can report (a tab or a whole screen).
+      const displaySurface = (
+        display.getVideoTracks()[0]?.getSettings() as MediaTrackSettings & {
+          displaySurface?: string;
+        }
+      )?.displaySurface;
+      const cursorOk = companionOk && surfaceSupportsCursor(displaySurface);
+      // Start buffering now so the pointer is already tracked when the
+      // countdown ends; timestamps are absolute and realigned at build time.
+      if (cursorOk) void companionStart(Date.now());
 
       // Optional microphone — never fail the whole recording if it's denied.
       let mic: MediaStream | null = null;
@@ -478,6 +525,16 @@ export function useScreenRecorder(): UseScreenRecorder {
               layout: options?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
             };
           }
+          let cursor: CursorTrack | null = null;
+          if (cursorOk) {
+            const built = buildCursorTrack(await companionStop(), {
+              startedAt: cursorStartedAtRef.current,
+              pauses: pausesRef.current,
+              displaySurface,
+            });
+            if (hasCursorData(built)) cursor = built;
+          }
+
           const finished: Recording = {
             url,
             blob,
@@ -485,6 +542,7 @@ export function useScreenRecorder(): UseScreenRecorder {
             size: blob.size,
             durationMs,
             camera,
+            cursor,
           };
           recordingRef.current = finished;
           setRecording(finished);
@@ -526,7 +584,10 @@ export function useScreenRecorder(): UseScreenRecorder {
       accumulatedRef.current = 0;
       pausedRef.current = false;
       setPaused(false);
+      pausesRef.current = [];
+      pausedAtRef.current = 0;
       startedAtRef.current = Date.now();
+      cursorStartedAtRef.current = startedAtRef.current;
       setPreviewStream(recordStream);
       setCameraPreviewStream(cam);
       // Flush a chunk every second. Without a timeslice the recorder buffers
@@ -563,6 +624,17 @@ export function useScreenRecorder(): UseScreenRecorder {
     setStatus("idle");
   }, [clearTimer, cleanupCapture, revokeRecording]);
 
+  // Detect the companion once on mount so the idle screen can mention it.
+  useEffect(() => {
+    let cancelled = false;
+    companionAvailable().then((ok) => {
+      if (!cancelled) setCompanionReady(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Tear down on unmount: stop the streams and free the object URL.
   useEffect(() => {
     return () => {
@@ -582,6 +654,7 @@ export function useScreenRecorder(): UseScreenRecorder {
     togglePause,
     previewStream,
     cameraPreviewStream,
+    companionReady,
     countdown,
     micActive,
     micMuted,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Loader2, Mic, Volume2 } from "lucide-react";
+import { Camera, Loader2, Mic, MousePointer2, Volume2 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { Switch } from "@/components/ui/switch";
@@ -18,6 +18,8 @@ interface IdleControlsProps {
   onMicChange: (enabled: boolean) => void;
   cameraEnabled: boolean;
   onCameraChange: (enabled: boolean) => void;
+  /** The companion extension is connected, so the cursor will be tracked. */
+  companionReady?: boolean;
   settings: RecorderSettingsType;
   onSettingsChange: (patch: Partial<RecorderSettingsType>) => void;
 }
@@ -29,6 +31,7 @@ export function IdleControls({
   onMicChange,
   cameraEnabled,
   onCameraChange,
+  companionReady,
   settings,
   onSettingsChange,
 }: IdleControlsProps) {
@@ -143,6 +146,16 @@ export function IdleControls({
       </div>
 
       <RecorderSettings settings={settings} onChange={onSettingsChange} />
+
+      {companionReady && (
+        <span className="inline-flex items-center gap-2 rounded-full border border-red/30 bg-red/10 px-3 py-1.5 font-mono text-xs text-foreground">
+          <MousePointer2 className="size-3.5 text-red" />
+          Cursor tracking on
+          <span className="text-muted-foreground">
+            smooth pointer · auto zoom
+          </span>
+        </span>
+      )}
 
       <p className="font-mono text-xs text-muted-foreground/70">
         Press{" "}

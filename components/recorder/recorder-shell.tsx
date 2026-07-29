@@ -45,6 +45,7 @@ export function RecorderShell() {
     recording,
     previewStream,
     cameraPreviewStream,
+    companionReady,
     countdown,
     paused,
     togglePause,
@@ -78,6 +79,7 @@ export function RecorderShell() {
               layout: recording.camera.layout,
             }
           : null,
+        cursor: recording.cursor ?? null,
       });
     });
     return () => {
@@ -107,6 +109,7 @@ export function RecorderShell() {
               layout: meta?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
             }
           : null,
+        cursor: meta?.cursor ?? null,
       });
     },
     [recents],
@@ -270,6 +273,7 @@ export function RecorderShell() {
               onMicChange={(v) => patchSettings({ micEnabled: v })}
               cameraEnabled={cameraEnabled}
               onCameraChange={(v) => patchSettings({ cameraEnabled: v })}
+              companionReady={companionReady}
               settings={settings}
               onSettingsChange={patchSettings}
             />

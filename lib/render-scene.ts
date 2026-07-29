@@ -17,6 +17,13 @@ import {
   type ZoomRegion,
 } from "@/lib/scene";
 import type { CameraLayout } from "@/lib/camera-layout";
+import {
+  cursorAt,
+  ripplesAt,
+  type CursorPath,
+  type CursorStyle,
+  type CursorTrack,
+} from "@/lib/cursor-track";
 
 export interface SceneCamera {
   /** Object URL of the recorded webcam track. */
@@ -24,11 +31,20 @@ export interface SceneCamera {
   layout: CameraLayout;
 }
 
+export interface SceneCursor {
+  track: CursorTrack;
+  /** Smoothed path, prebuilt so every frame is a cheap lookup. */
+  path: CursorPath | null;
+  style: CursorStyle;
+}
+
 export interface Scene {
   style: FrameStyle;
   zooms: ZoomRegion[];
   /** Present when a webcam bubble should be composited over the video. */
   camera?: SceneCamera | null;
+  /** Present when a synthetic cursor should be drawn over the video. */
+  cursor?: SceneCursor | null;
 }
 
 function roundRectPath(
@@ -43,6 +59,148 @@ function roundRectPath(
     // Safari < 16.4 lacks roundRect — fall back to sharp corners.
     ctx.rect(rect.x, rect.y, rect.w, rect.h);
   }
+}
+
+/* ---------------------------------------------------------------- */
+/* Cursor layer                                                      */
+/* ---------------------------------------------------------------- */
+
+/** The classic arrow, traced in a unit box: height 1, tip at the origin. */
+const ARROW: readonly [number, number][] = [
+  [0, 0],
+  [0, 0.75],
+  [0.19, 0.58],
+  [0.31, 0.85],
+  [0.42, 0.8],
+  [0.3, 0.53],
+  [0.53, 0.53],
+];
+
+const RED = "#f62d22";
+
+/** Normalised source point (0..1) → frame pixels, through the zoom crop. */
+function mapPoint(
+  nx: number,
+  ny: number,
+  crop: Rect,
+  rect: Rect,
+  frameW: number,
+  frameH: number,
+): { x: number; y: number } {
+  return {
+    x: rect.x + ((nx * frameW - crop.x) / crop.w) * rect.w,
+    y: rect.y + ((ny * frameH - crop.y) / crop.h) * rect.h,
+  };
+}
+
+function drawPointer(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  height: number,
+) {
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < ARROW.length; i++) {
+    const px = x + ARROW[i][0] * height;
+    const py = y + ARROW[i][1] * height;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+
+  // A soft drop shadow lifts the pointer off busy screen content.
+  ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
+  ctx.shadowBlur = height * 0.18;
+  ctx.shadowOffsetY = height * 0.05;
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+
+  ctx.shadowColor = "transparent";
+  ctx.lineWidth = Math.max(1, height * 0.05);
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(20, 18, 16, 0.85)";
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRipple(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  base: number,
+  progress: number,
+  secondary: boolean,
+) {
+  const eased = 1 - Math.pow(1 - progress, 3);
+  const radius = base * (0.3 + 0.7 * eased);
+  const fade = Math.pow(1 - progress, 1.5);
+  const color = secondary ? RED : "#ffffff";
+
+  ctx.save();
+  // Filled core that pops on impact and vanishes quickly.
+  ctx.globalAlpha = Math.pow(1 - progress, 3) * 0.28;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Expanding ring.
+  ctx.globalAlpha = fade * 0.9;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(1, base * 0.14 * fade + base * 0.04);
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Draw the smoothed pointer and any live click ripples over the video area.
+ * Shared by the export renderer and the editor's preview overlay so both
+ * show exactly the same thing. The pointer keeps a constant on-screen size
+ * regardless of zoom — scaling it with the crop would make it balloon.
+ */
+export function drawCursorLayer(
+  ctx: CanvasRenderingContext2D,
+  cursor: SceneCursor,
+  time: number,
+  crop: Rect,
+  rect: Rect,
+  frameW: number,
+  frameH: number,
+  radius = 0,
+) {
+  const { track, path, style } = cursor;
+  if (!style.show) return;
+
+  ctx.save();
+  roundRectPath(ctx, rect, radius);
+  ctx.clip();
+
+  const pointerH = style.size * frameH;
+  if (style.clicks) {
+    for (const ripple of ripplesAt(track, time)) {
+      const p = mapPoint(ripple.x, ripple.y, crop, rect, frameW, frameH);
+      drawRipple(
+        ctx,
+        p.x,
+        p.y,
+        pointerH * 1.5,
+        ripple.progress,
+        ripple.secondary,
+      );
+    }
+  }
+
+  if (path) {
+    const at = cursorAt(path, time);
+    if (at) {
+      const p = mapPoint(at.x, at.y, crop, rect, frameW, frameH);
+      drawPointer(ctx, p.x, p.y, pointerH);
+    }
+  }
+  ctx.restore();
 }
 
 /** Draw the webcam bubble (cover-cropped, clipped, mirrored, bordered). */
@@ -152,6 +310,10 @@ export function drawSceneFrame(
     rect.h,
   );
   ctx.restore();
+
+  if (scene.cursor) {
+    drawCursorLayer(ctx, scene.cursor, time, crop, rect, frameW, frameH, radius);
+  }
 
   if (scene.camera && camVideo && camVideo.readyState >= 2) {
     drawCameraBubble(ctx, camVideo, scene.camera.layout, rect);
