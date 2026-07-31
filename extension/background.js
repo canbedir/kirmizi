@@ -52,12 +52,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true; // keep the message channel open for the async reply
     }
 
-    case "batch":
-      if (recording && message.events?.length && events.length < MAX_EVENTS) {
-        events.push(...message.events);
+    case "batch": {
+      if (!recording || !message.events?.length || events.length >= MAX_EVENTS) {
+        sendResponse({ ok: true });
+        break;
       }
-      sendResponse({ ok: true });
+      // Stamp each event with the sending tab's zoom factor. In Chromium,
+      // event.screenX is in device-independent pixels while screen.width is
+      // in CSS pixels — they differ by exactly this factor, so the app needs
+      // it to divide like with like. Each tab can be zoomed differently.
+      const tabId = _sender.tab?.id;
+      const accept = (zoom) => {
+        for (const event of message.events) {
+          event.zoom = zoom;
+          events.push(event);
+        }
+        sendResponse({ ok: true });
+      };
+      if (tabId != null && chrome.tabs.getZoom) {
+        chrome.tabs
+          .getZoom(tabId)
+          .then(accept)
+          .catch(() => accept(1));
+        return true; // async sendResponse
+      }
+      accept(1);
       break;
+    }
 
     case "state":
       sendResponse({ recording });

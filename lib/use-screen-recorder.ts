@@ -42,6 +42,12 @@ export interface Recording {
   camera?: RecordedCamera | null;
   /** Present when the companion extension supplied pointer data. */
   cursor?: CursorTrack | null;
+  /** What the browser said it captured, kept for diagnosing misplacement. */
+  capture?: {
+    displaySurface?: string;
+    width: number;
+    height: number;
+  };
 }
 
 export type Resolution = "auto" | "1440p" | "1080p" | "720p";
@@ -329,11 +335,15 @@ export function useScreenRecorder(): UseScreenRecorder {
 
       // Pointer data only lines up when the captured surface matches a
       // coordinate space the companion can report (a tab or a whole screen).
-      const displaySurface = (
-        display.getVideoTracks()[0]?.getSettings() as MediaTrackSettings & {
-          displaySurface?: string;
-        }
-      )?.displaySurface;
+      const captureSettings = display.getVideoTracks()[0]?.getSettings() as
+        | (MediaTrackSettings & { displaySurface?: string })
+        | undefined;
+      const displaySurface = captureSettings?.displaySurface;
+      const captureInfo = {
+        displaySurface,
+        width: captureSettings?.width ?? 0,
+        height: captureSettings?.height ?? 0,
+      };
       const cursorOk = companionOk && surfaceSupportsCursor(displaySurface);
       // Start buffering now so the pointer is already tracked when the
       // countdown ends; timestamps are absolute and realigned at build time.
@@ -542,6 +552,7 @@ export function useScreenRecorder(): UseScreenRecorder {
             durationMs,
             camera,
             cursor,
+            capture: captureInfo,
           };
           recordingRef.current = finished;
           setRecording(finished);

@@ -1,8 +1,14 @@
 // Per-tab pointer collector.
 //
 // Runs in every frame but only listens while a recording is in progress.
-// Positions are normalised on the spot so nothing about the page itself —
-// no URL, no content, no element — is ever recorded.
+// Events are sent raw — screen coordinates plus this page's own screen
+// metrics — and normalised later, once the background has attached the tab's
+// zoom factor. Normalising here would bake in a unit mismatch: in Chromium,
+// event.screenX stays in device-independent pixels while screen.width is
+// reported in CSS pixels, so at any page zoom other than 100% the two
+// disagree by exactly the zoom factor.
+//
+// Nothing about the page itself — no URL, no content, no element — is read.
 
 (() => {
   const isTopFrame = window.top === window;
@@ -17,19 +23,19 @@
   let timer = null;
 
   function sample(event, button) {
-    // screenX/Y are measured from the virtual desktop's origin, so on a
-    // multi-monitor setup they carry the offset of whichever screen this
-    // window is on. availLeft/availTop give that offset, which makes the
-    // fraction relative to the current screen rather than the desktop.
-    const originX = typeof screen.availLeft === "number" ? screen.availLeft : 0;
-    const originY = typeof screen.availTop === "number" ? screen.availTop : 0;
     const point = {
       t: Date.now(),
-      sx: (event.screenX - originX) / (screen.width || 1),
-      sy: (event.screenY - originY) / (screen.height || 1),
+      // Raw screen position, plus the metrics needed to normalise it later.
+      screenX: event.screenX,
+      screenY: event.screenY,
+      sw: screen.width || 0,
+      sh: screen.height || 0,
+      al: typeof screen.availLeft === "number" ? screen.availLeft : 0,
+      at: typeof screen.availTop === "number" ? screen.availTop : 0,
     };
     // Viewport coordinates only make sense for the top frame — inside an
-    // iframe they're relative to the iframe, not the captured tab.
+    // iframe they're relative to the iframe, not the captured tab. Both
+    // sides of this ratio are CSS pixels, so zoom cancels out.
     if (isTopFrame) {
       point.vx = event.clientX / (window.innerWidth || 1);
       point.vy = event.clientY / (window.innerHeight || 1);

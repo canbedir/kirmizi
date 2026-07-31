@@ -20,12 +20,26 @@ const EXT = "kirmizi-companion";
 export interface RawPointerEvent {
   /** Date.now() when it happened. */
   t: number;
-  /** Position within the tab's viewport, 0..1. */
-  vx: number;
-  vy: number;
-  /** Position on the screen, 0..1. */
-  sx: number;
-  sy: number;
+  /** Position within the tab's viewport, 0..1 (top frame only). */
+  vx?: number;
+  vy?: number;
+  /** Raw screen position, device-independent pixels (companion ≥ 1.0.2). */
+  screenX?: number;
+  screenY?: number;
+  /** The reporting page's screen metrics, CSS pixels. */
+  sw?: number;
+  sh?: number;
+  al?: number;
+  at?: number;
+  /** The reporting tab's zoom factor, attached by the background. */
+  zoom?: number;
+  /**
+   * Pre-normalised screen fractions from companion ≤ 1.0.1. Wrong whenever
+   * the page wasn't at 100% zoom — kept only so an outdated install keeps
+   * limping instead of breaking.
+   */
+  sx?: number;
+  sy?: number;
   /** Mouse button, only present for clicks. */
   click?: number;
 }
@@ -136,6 +150,9 @@ export function buildCursorTrack(
   const samples: CursorSample[] = [];
   const clicks: CursorClick[] = [];
 
+  let zoomMin = Infinity;
+  let zoomMax = -Infinity;
+
   for (const event of events) {
     if (pauses.some((p) => event.t >= p.start && event.t <= p.end)) continue;
     let paused = 0;
@@ -145,9 +162,35 @@ export function buildCursorTrack(
     const t = event.t - startedAt - paused;
     if (t < -250) continue;
 
-    const x = useViewport ? event.vx : event.sx;
-    const y = useViewport ? event.vy : event.sy;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    let x: number | undefined;
+    let y: number | undefined;
+    if (useViewport) {
+      x = event.vx;
+      y = event.vy;
+    } else if (event.screenX !== undefined && event.sw) {
+      // Divide like with like: event.screenX is in device-independent
+      // pixels, screen.width in CSS pixels — they differ by the tab's zoom
+      // factor, so a zoomed page would otherwise shrink every coordinate.
+      const zoom = event.zoom || 1;
+      zoomMin = Math.min(zoomMin, zoom);
+      zoomMax = Math.max(zoomMax, zoom);
+      const w = event.sw * zoom;
+      const h = (event.sh ?? 0) * zoom;
+      x = (event.screenX - (event.al ?? 0) * zoom) / (w || 1);
+      y = ((event.screenY ?? 0) - (event.at ?? 0) * zoom) / (h || 1);
+    } else {
+      // Companion ≤ 1.0.1 — already (possibly wrongly) normalised.
+      x = event.sx;
+      y = event.sy;
+    }
+    if (
+      x === undefined ||
+      y === undefined ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+      continue;
+    }
     const at = Math.max(0, t);
 
     samples.push({ t: at, x, y });
@@ -158,7 +201,9 @@ export function buildCursorTrack(
 
   samples.sort((a, b) => a.t - b.t);
   clicks.sort((a, b) => a.t - b.t);
-  return { samples, clicks };
+  const track: CursorTrack = { samples, clicks };
+  if (Number.isFinite(zoomMin)) track.zoomRange = [zoomMin, zoomMax];
+  return track;
 }
 
 /**

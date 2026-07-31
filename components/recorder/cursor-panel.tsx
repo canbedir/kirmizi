@@ -24,11 +24,14 @@ export function CursorPanel({
   style,
   clickCount,
   zoomCount,
+  diagnostics,
   onChange,
 }: {
   style: CursorStyle;
   clickCount: number;
   zoomCount: number;
+  /** Temporary: raw capture + first-click figures, for chasing misplacement. */
+  diagnostics?: string;
   onChange: (style: CursorStyle) => void;
 }) {
   // Say what happened rather than leaving a lit-up button doing nothing.
@@ -112,6 +115,12 @@ export function CursorPanel({
       {note && (
         <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/80">
           {note}
+        </p>
+      )}
+
+      {diagnostics && (
+        <p className="rounded border border-border/60 bg-background/40 p-2 font-mono text-[10px] leading-relaxed wrap-break-word text-muted-foreground/70">
+          {diagnostics}
         </p>
       )}
 

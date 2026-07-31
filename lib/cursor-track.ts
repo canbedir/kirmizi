@@ -34,6 +34,8 @@ export interface CursorClick {
 export interface CursorTrack {
   samples: CursorSample[];
   clicks: CursorClick[];
+  /** Range of per-tab zoom factors seen while collecting (diagnostic). */
+  zoomRange?: [number, number];
 }
 
 export interface CursorStyle {

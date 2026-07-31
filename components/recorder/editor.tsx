@@ -185,6 +185,31 @@ export function Editor({
     [cursorTrack, cursorPath, cursorStyle],
   );
 
+  // Temporary readout for chasing effects landing in the wrong place: what
+  // the browser said it captured, versus where the first clicks were logged.
+  const cursorDiagnostics = useMemo(() => {
+    if (!cursorTrack) return undefined;
+    const cap = recording.capture;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+    const screenPart =
+      typeof screen !== "undefined"
+        ? `screen ${screen.width}x${screen.height} dpr ${dpr} (phys ${Math.round(
+            screen.width * dpr,
+          )}x${Math.round(screen.height * dpr)})`
+        : "screen ?";
+    const capPart = cap
+      ? `capture ${cap.displaySurface ?? "?"} ${cap.width}x${cap.height}`
+      : "capture ?";
+    const first = cursorTrack.clicks
+      .slice(0, 3)
+      .map((c) => `(${c.x.toFixed(3)}, ${c.y.toFixed(3)})`)
+      .join(" ");
+    const zoomPart = cursorTrack.zoomRange
+      ? ` · tab zoom ${cursorTrack.zoomRange[0].toFixed(2)}–${cursorTrack.zoomRange[1].toFixed(2)}`
+      : "";
+    return `${capPart} · ${screenPart}${zoomPart} · samples ${cursorTrack.samples.length} · first clicks ${first || "none"}`;
+  }, [cursorTrack, recording.capture]);
+
   const cameraOn = !!camera && !camHidden;
   const hasScene = sceneActive(frameStyle, zooms) || cameraOn || !!sceneCursor;
   const edited = isEdited || hasScene;
@@ -1159,6 +1184,7 @@ export function Editor({
               style={cursorStyle}
               clickCount={cursorTrack.clicks.length}
               zoomCount={zooms.filter((z) => z.auto).length}
+              diagnostics={cursorDiagnostics}
               onChange={applyCursorStyle}
             />
           )}
