@@ -31,9 +31,13 @@ gains a **Cursor** panel and an **Auto zoom** button.
 
 | Captured surface | Cursor data |
 | ---------------- | ----------- |
-| A browser tab    | Yes — tracked across the page, including iframes on screen captures |
-| A whole screen   | Yes |
+| A browser tab    | Yes, exactly — the capture *is* the viewport, so coordinates land on the pixel |
+| A whole screen, one display | Yes |
+| A whole screen, several displays | No — pointer coordinates are measured from the whole desktop and nothing says which display was captured, so effects could land in the wrong place |
 | A single window  | No — a window's position on screen isn't exposed, so coordinates can't be matched |
+
+Recording a tab is the reliable choice: it needs no assumptions about the
+desktop layout at all.
 
 ## Publishing to the Chrome Web Store
 

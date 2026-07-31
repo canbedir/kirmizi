@@ -161,7 +161,24 @@ export function buildCursorTrack(
   return { samples, clicks };
 }
 
-/** Whether a captured surface can be matched to companion coordinates. */
+/**
+ * Whether pointer coordinates can be matched to what was captured.
+ *
+ * A tab is exact: the capture *is* the viewport, so clientX/innerWidth lands
+ * on the pixel. A single screen is exact too — display scaling cancels out
+ * once both sides are normalised.
+ *
+ * More than one screen is where it breaks down. Coordinates are measured from
+ * the whole virtual desktop, and nothing tells us which of the screens the
+ * user picked, so anything drawn from them can land on the wrong part of the
+ * frame — or the wrong monitor entirely. Better to collect nothing than to
+ * put the zoom somewhere the user didn't click.
+ */
 export function surfaceSupportsCursor(displaySurface?: string): boolean {
-  return displaySurface === "browser" || displaySurface === "monitor";
+  if (displaySurface === "browser") return true;
+  if (displaySurface !== "monitor") return false;
+  const extended =
+    typeof screen !== "undefined" &&
+    (screen as Screen & { isExtended?: boolean }).isExtended;
+  return !extended;
 }

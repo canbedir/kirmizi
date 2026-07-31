@@ -60,7 +60,9 @@ export const DEFAULT_CURSOR_STYLE: CursorStyle = {
   show: false,
   size: 0.05,
   smoothing: 0.55,
-  clicks: true,
+  // Off until you ask for it: a ripple in the wrong place is worse than no
+  // ripple at all, and the pointer is visible in the capture regardless.
+  clicks: false,
   sound: false,
   autoZoom: true,
 };
