@@ -62,6 +62,12 @@ export interface CursorStyle {
   smoothing: number;
   /** Draw a ripple where each click landed. */
   clicks: boolean;
+  /**
+   * Paint over the system cursor that's baked into the capture, so the
+   * redrawn one isn't a second pointer alongside it. No browser can leave
+   * the real cursor out of a screen capture, so covering it is the only way.
+   */
+  cover: boolean;
   /** Mix a synthesised click into the audio at each click. */
   sound: boolean;
   /** Build zoom regions from the recorded clicks, without being asked. */
@@ -72,9 +78,8 @@ export const DEFAULT_CURSOR_STYLE: CursorStyle = {
   show: false,
   size: 0.05,
   smoothing: 0.55,
-  // Off until you ask for it: a ripple in the wrong place is worse than no
-  // ripple at all, and the pointer is visible in the capture regardless.
   clicks: false,
+  cover: true,
   sound: false,
   autoZoom: true,
 };
@@ -163,6 +168,24 @@ export function buildCursorPath(
   }
 
   return { step, t0, xs, ys };
+}
+
+/**
+ * The pointer's unsmoothed position at `time` (seconds) — where the system
+ * cursor actually is in the captured pixels, as opposed to where the redrawn
+ * one is gliding.
+ */
+export function rawCursorAt(
+  track: CursorTrack,
+  time: number,
+): { x: number; y: number } | null {
+  const samples = track.samples;
+  if (samples.length < 2) return null;
+  const ms = time * 1000;
+  if (ms < samples[0].t - 250 || ms > samples[samples.length - 1].t + 250) {
+    return null;
+  }
+  return rawAt(samples, ms);
 }
 
 /** The smoothed pointer position at `time` (seconds), or null if off-track. */

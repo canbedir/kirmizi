@@ -527,6 +527,7 @@ export function Editor({
               geo.frameW,
               geo.frameH,
               geo.radius,
+              video,
             );
           }
         }

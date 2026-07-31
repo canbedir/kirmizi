@@ -157,11 +157,17 @@ export function CursorPanel({
               />
             </label>
           </div>
-          <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/80">
-            Browsers can&apos;t leave the system pointer out of a capture, so
-            this draws a second one over it. Smoothing makes it trail the
-            original — turn smoothing down to keep them together.
-          </p>
+          <label className="flex items-center gap-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80">
+            <input
+              type="checkbox"
+              checked={style.cover}
+              onChange={() => onChange({ ...style, cover: !style.cover })}
+              className="size-3.5 accent-red"
+            />
+            Paint over the captured cursor. Browsers can&apos;t leave the
+            system pointer out of a recording, so this hides it — turn it off
+            if the patch shows over busy detail.
+          </label>
         </>
       )}
     </div>

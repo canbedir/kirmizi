@@ -19,6 +19,7 @@ import {
 import type { CameraLayout } from "@/lib/camera-layout";
 import {
   cursorAt,
+  rawCursorAt,
   ripplesAt,
   type CursorPath,
   type CursorStyle,
@@ -78,6 +79,13 @@ const ARROW: readonly [number, number][] = [
 
 const RED = "#f62d22";
 
+/**
+ * Roughly how tall the system cursor is, as a fraction of frame height —
+ * a 32px arrow on a 1080-tall capture. Only used to size the patch that
+ * hides it, so approximate is fine.
+ */
+const SYSTEM_CURSOR = 0.032;
+
 /** Normalised source point (0..1) → frame pixels, through the zoom crop. */
 function mapPoint(
   nx: number,
@@ -91,6 +99,92 @@ function mapPoint(
     x: rect.x + ((nx * frameW - crop.x) / crop.w) * rect.w,
     y: rect.y + ((ny * frameH - crop.y) / crop.h) * rect.h,
   };
+}
+
+/**
+ * The system cursor is always burned into a screen capture — no browser
+ * implements a constraint to leave it out. To show a redrawn pointer without
+ * a twin trailing it, the original has to be painted over.
+ *
+ * The patch is filled with the video's own colour taken from a ring around
+ * the cursor, so on the flat UI that fills most recordings it disappears
+ * entirely; over detail it reads as a small soft smudge, which still beats a
+ * duplicate cursor. A 3×3 downscale of the surrounding box gives that ring
+ * average in a single read.
+ */
+let sampler: {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} | null = null;
+
+function backgroundAround(
+  video: HTMLVideoElement,
+  sx: number,
+  sy: number,
+  box: number,
+): string | null {
+  if (!sampler) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 3;
+    canvas.height = 3;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    sampler = { canvas, ctx };
+  }
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if (!w || !h) return null;
+
+  // A box three times the cursor, centred on it: the outer ring is
+  // background, the centre cell is the cursor itself.
+  const size = box * 3;
+  const left = Math.max(0, Math.min(w - size, sx - box));
+  const top = Math.max(0, Math.min(h - size, sy - box));
+  try {
+    sampler.ctx.drawImage(video, left, top, size, size, 0, 0, 3, 3);
+    const data = sampler.ctx.getImageData(0, 0, 3, 3).data;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let i = 0; i < 9; i++) {
+      if (i === 4) continue; // skip the centre — that's the cursor
+      r += data[i * 4];
+      g += data[i * 4 + 1];
+      b += data[i * 4 + 2];
+      n++;
+    }
+    return `rgb(${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)})`;
+  } catch {
+    // A tainted canvas would throw; recordings are same-origin blobs, but
+    // there's no reason to take the whole frame down over it.
+    return null;
+  }
+}
+
+function coverCursor(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+) {
+  // The arrow hangs down and to the right of its tip, so the patch is
+  // anchored there rather than centred. Soft edges let it melt into the
+  // surrounding pixels instead of showing a rectangle.
+  const cx = x + size * 0.3;
+  const cy = y + size * 0.45;
+  const radius = size * 0.75;
+  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.45, cx, cy, radius);
+  gradient.addColorStop(0, color);
+  gradient.addColorStop(0.75, color);
+  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.save();
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawPointer(
@@ -170,6 +264,7 @@ export function drawCursorLayer(
   frameW: number,
   frameH: number,
   radius = 0,
+  video?: HTMLVideoElement | null,
 ) {
   const { track, path, style } = cursor;
   // Ripples stand on their own: they mark clicks, which the captured pointer
@@ -181,6 +276,26 @@ export function drawCursorLayer(
   ctx.clip();
 
   const pointerH = style.size * frameH;
+
+  // Hide the captured cursor before anything is drawn over it.
+  if (style.show && style.cover && video) {
+    const raw = rawCursorAt(track, time);
+    if (raw) {
+      // The system cursor is a fixed size on screen, so it scales with the
+      // crop the same way the video does.
+      const onScreen = SYSTEM_CURSOR * frameH * (rect.h / crop.h);
+      const color = backgroundAround(
+        video,
+        raw.x * frameW,
+        raw.y * frameH,
+        SYSTEM_CURSOR * frameH,
+      );
+      if (color) {
+        const p = mapPoint(raw.x, raw.y, crop, rect, frameW, frameH);
+        coverCursor(ctx, p.x, p.y, onScreen, color);
+      }
+    }
+  }
   if (style.clicks) {
     for (const ripple of ripplesAt(track, time)) {
       const p = mapPoint(ripple.x, ripple.y, crop, rect, frameW, frameH);
@@ -314,7 +429,17 @@ export function drawSceneFrame(
   ctx.restore();
 
   if (scene.cursor) {
-    drawCursorLayer(ctx, scene.cursor, time, crop, rect, frameW, frameH, radius);
+    drawCursorLayer(
+      ctx,
+      scene.cursor,
+      time,
+      crop,
+      rect,
+      frameW,
+      frameH,
+      radius,
+      video,
+    );
   }
 
   if (scene.camera && camVideo && camVideo.readyState >= 2) {
