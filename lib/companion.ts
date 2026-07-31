@@ -128,12 +128,18 @@ export async function companionStart(startedAt: number): Promise<boolean> {
   return !!reply;
 }
 
-/** Stop collecting and return everything captured. */
+/**
+ * Stop collecting and return everything captured.
+ *
+ * Retried once: the extension's background is a service worker the browser
+ * is free to shut down, and a cold start can miss the first request.
+ */
 export async function companionStop(): Promise<{
   events: RawPointerEvent[];
   displays: DisplayBounds[] | null;
 }> {
-  const reply = await ask("stop", "events", {}, 4000);
+  let reply = await ask("stop", "events", {}, 1800);
+  if (!reply) reply = await ask("stop", "events", {}, 1800);
   return { events: reply?.events ?? [], displays: reply?.displays ?? null };
 }
 

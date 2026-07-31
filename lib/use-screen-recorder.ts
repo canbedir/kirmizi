@@ -534,18 +534,6 @@ export function useScreenRecorder(): UseScreenRecorder {
               layout: options?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
             };
           }
-          let cursor: CursorTrack | null = null;
-          if (cursorOk) {
-            const collected = await companionStop();
-            const built = buildCursorTrack(collected.events, {
-              startedAt: cursorStartedAtRef.current,
-              pauses: pausesRef.current,
-              displaySurface,
-              displays: collected.displays,
-            });
-            if (hasCursorData(built)) cursor = built;
-          }
-
           const finished: Recording = {
             url,
             blob,
@@ -553,7 +541,6 @@ export function useScreenRecorder(): UseScreenRecorder {
             size: blob.size,
             durationMs,
             camera,
-            cursor,
             capture: captureInfo,
           };
           recordingRef.current = finished;
@@ -565,6 +552,24 @@ export function useScreenRecorder(): UseScreenRecorder {
           setPreviewStream(null);
           setCameraPreviewStream(null);
           cleanupCapture();
+
+          // Pointer data comes from another process, so it's never allowed to
+          // hold up the editor. It's collected after the fact and attached
+          // once it lands; the editor picks it up when it does.
+          if (cursorOk) {
+            const collected = await companionStop();
+            const built = buildCursorTrack(collected.events, {
+              startedAt: cursorStartedAtRef.current,
+              pauses: pausesRef.current,
+              displaySurface,
+              displays: collected.displays,
+            });
+            if (hasCursorData(built) && recordingRef.current === finished) {
+              const withCursor: Recording = { ...finished, cursor: built };
+              recordingRef.current = withCursor;
+              setRecording(withCursor);
+            }
+          }
         })();
       };
 
