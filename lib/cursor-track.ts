@@ -37,7 +37,7 @@ export interface CursorTrack {
   /** Range of per-tab zoom factors seen while collecting (diagnostic). */
   zoomRange?: [number, number];
   /** Which coordinate space positions were normalised in (diagnostic). */
-  space?: "viewport" | "display" | "page-metrics";
+  space?: "viewport" | "window" | "display" | "page-metrics";
   /** The OS display bounds used, when space is "display" (diagnostic). */
   displayBounds?: {
     left: number;

@@ -25,7 +25,10 @@
   function sample(event, button) {
     const point = {
       t: Date.now(),
-      // Raw screen position, plus the metrics needed to normalise it later.
+      // Raw screen position as the page reports it. Not to be trusted on its
+      // own: Brave's fingerprinting protection spoofs screenX/screenY to the
+      // client coordinates, and farbles screen.width too. Kept as a fallback
+      // and for diagnostics.
       screenX: event.screenX,
       screenY: event.screenY,
       sw: screen.width || 0,
@@ -33,10 +36,17 @@
       al: typeof screen.availLeft === "number" ? screen.availLeft : 0,
       at: typeof screen.availTop === "number" ? screen.availTop : 0,
     };
-    // Viewport coordinates only make sense for the top frame — inside an
-    // iframe they're relative to the iframe, not the captured tab. Both
-    // sides of this ratio are CSS pixels, so zoom cancels out.
+    // Top-frame client coordinates are genuine everywhere — no browser
+    // spoofs a page's own layout. Combined with the window's true bounds
+    // (which the background reads from the browser itself, out of any
+    // anti-fingerprinting's reach), they reconstruct the real screen
+    // position. Inside an iframe they'd be iframe-relative, so only the
+    // top frame sends them.
     if (isTopFrame) {
+      point.cx = event.clientX;
+      point.cy = event.clientY;
+      point.iw = window.innerWidth || 0;
+      point.ih = window.innerHeight || 0;
       point.vx = event.clientX / (window.innerWidth || 1);
       point.vy = event.clientY / (window.innerHeight || 1);
     }

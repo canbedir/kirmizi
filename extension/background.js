@@ -87,27 +87,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
-      // Stamp each event with the sending tab's zoom factor. In Chromium,
-      // event.screenX is in device-independent pixels while screen.width is
-      // in CSS pixels — they differ by exactly this factor, so the app needs
-      // it to divide like with like. Each tab can be zoomed differently.
+      // Stamp each event with the sending tab's zoom factor and its window's
+      // true bounds. Both come from the browser itself rather than the page,
+      // which matters: pages can't be trusted about screen geometry (Brave's
+      // fingerprinting protection spoofs screenX/screenY and screen.width),
+      // but extension APIs sit outside that shielding. With the window's
+      // real position plus genuine client coordinates, the app reconstructs
+      // exact screen positions.
       const tabId = _sender.tab?.id;
-      const accept = (zoom) => {
+      const windowId = _sender.tab?.windowId;
+      const accept = (zoom, win) => {
         for (const event of message.events) {
           event.zoom = zoom;
+          if (win) event.win = win;
           events.push(event);
         }
         sendResponse({ ok: true });
       };
-      if (tabId != null && chrome.tabs.getZoom) {
-        chrome.tabs
-          .getZoom(tabId)
-          .then(accept)
-          .catch(() => accept(1));
-        return true; // async sendResponse
-      }
-      accept(1);
-      break;
+      const zoomP =
+        tabId != null && chrome.tabs.getZoom
+          ? chrome.tabs.getZoom(tabId).catch(() => 1)
+          : Promise.resolve(1);
+      const winP =
+        windowId != null && chrome.windows?.get
+          ? chrome.windows
+              .get(windowId)
+              .then((w) => ({
+                left: w.left ?? 0,
+                top: w.top ?? 0,
+                width: w.width ?? 0,
+                height: w.height ?? 0,
+                state: w.state,
+              }))
+              .catch(() => null)
+          : Promise.resolve(null);
+      Promise.all([zoomP, winP]).then(([zoom, win]) => accept(zoom, win));
+      return true; // async sendResponse
     }
 
     case "state":

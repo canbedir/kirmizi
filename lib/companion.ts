@@ -26,6 +26,19 @@ export interface RawPointerEvent {
   /** Raw screen position, device-independent pixels (companion ≥ 1.0.2). */
   screenX?: number;
   screenY?: number;
+  /** Genuine top-frame client coordinates + viewport size (≥ 1.0.4). */
+  cx?: number;
+  cy?: number;
+  iw?: number;
+  ih?: number;
+  /** The tab's window bounds, from the browser itself (≥ 1.0.4). */
+  win?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    state?: string;
+  };
   /** The reporting page's screen metrics, CSS pixels. */
   sw?: number;
   sh?: number;
@@ -176,6 +189,7 @@ export function buildCursorTrack(
 
   let zoomMin = Infinity;
   let zoomMax = -Infinity;
+  let usedWindowGeometry = false;
 
   for (const event of events) {
     if (pauses.some((p) => event.t >= p.start && event.t <= p.end)) continue;
@@ -191,9 +205,36 @@ export function buildCursorTrack(
     if (useViewport) {
       x = event.vx;
       y = event.vy;
+    } else if (
+      event.cx !== undefined &&
+      event.win &&
+      event.win.width > 0 &&
+      event.iw &&
+      display &&
+      display.width > 0
+    ) {
+      // Reconstruct the true screen position from parts no page can lie
+      // about: the window's real bounds (from the browser, beyond any
+      // anti-fingerprinting), the genuine in-page click position, and the
+      // tab's zoom. The browser chrome's height falls out of the window
+      // height minus the viewport height; side borders likewise.
+      const zoom = event.zoom || 1;
+      const border = Math.max(
+        0,
+        (event.win.width - event.iw * zoom) / 2,
+      );
+      const chromeTop = Math.max(
+        0,
+        event.win.height - (event.ih ?? 0) * zoom - border,
+      );
+      const screenX = event.win.left + border + event.cx * zoom;
+      const screenY = event.win.top + chromeTop + event.cy! * zoom;
+      x = (screenX - display.left) / display.width;
+      y = (screenY - display.top) / display.height;
+      usedWindowGeometry = true;
     } else if (event.screenX !== undefined && display && display.width > 0) {
-      // Both sides of this division come from the OS, so they cannot
-      // disagree about units.
+      // Page-reported screen position against OS bounds — right in Chrome
+      // and Edge, wrong in Brave, whose shields spoof screenX/screenY.
       x = (event.screenX - display.left) / display.width;
       y = ((event.screenY ?? 0) - display.top) / display.height;
     } else if (event.screenX !== undefined && event.sw) {
@@ -232,9 +273,11 @@ export function buildCursorTrack(
   if (Number.isFinite(zoomMin)) track.zoomRange = [zoomMin, zoomMax];
   track.space = useViewport
     ? "viewport"
-    : display
-      ? "display"
-      : "page-metrics";
+    : usedWindowGeometry
+      ? "window"
+      : display
+        ? "display"
+        : "page-metrics";
   if (display) track.displayBounds = { ...display };
   return track;
 }
