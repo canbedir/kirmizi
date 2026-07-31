@@ -202,8 +202,17 @@ export function ripplesAt(track: CursorTrack, time: number): Ripple[] {
 /* Auto zoom                                                         */
 /* ---------------------------------------------------------------- */
 
-/** Clicks further apart than this start a new zoom. */
+/** Clicks further apart in time than this start a new zoom. */
 const CLUSTER_GAP = 2.5;
+/**
+ * And further apart on screen than this, too. Clicking a menu and then
+ * something across the page is two moments however quickly it happened —
+ * grouping them by timing alone produces one wide, weak zoom that just sits
+ * there through both.
+ */
+const CLUSTER_BOX = 0.18;
+/** Breathing room left between consecutive zooms, so each one lets go. */
+const MIN_PULLOUT = 0.45;
 /** Lead-in before the first click of a cluster, and tail after the last. */
 const LEAD = 0.7;
 const TAIL = 1.3;
@@ -222,10 +231,8 @@ const MERGE_GAP = 1.6;
  * properly and let the travel between them be the pull-out.
  */
 const MERGE_MIN_SCALE = 1.5;
-/** Below this gap, merge regardless: anything else reads as a flicker. */
-const FLICKER_GAP = 0.45;
 /** Zooms shorter than this aren't worth the movement. */
-const MIN_USEFUL = 1.2;
+const MIN_USEFUL = 0.9;
 /** Leave the first and last moments alone so the clip opens and closes flat. */
 const EDGE_GUARD = 0.35;
 /**
@@ -273,14 +280,30 @@ function boundsOf(points: { x: number; y: number }[]) {
   return { minX, maxX, minY, maxY };
 }
 
-/** Bursts of clicks, each one an anchor with a lead-in and a tail. */
+/**
+ * Bursts of clicks, each one an anchor with a lead-in and a tail. A click
+ * joins the burst in progress only if it is close to it in both time and
+ * place — otherwise it starts its own, and gets its own zoom.
+ */
 function clickAnchors(clicks: CursorClick[]): Anchor[] {
   const sorted = [...clicks].sort((a, b) => a.t - b.t);
   const bursts: CursorClick[][] = [];
   let current: CursorClick[] = [];
+
   for (const click of sorted) {
     const prev = current[current.length - 1];
-    if (prev && (click.t - prev.t) / 1000 > CLUSTER_GAP) {
+    let breaks = false;
+    if (prev) {
+      if ((click.t - prev.t) / 1000 > CLUSTER_GAP) {
+        breaks = true;
+      } else {
+        const grown = boundsOf([...current, click]);
+        breaks =
+          grown.maxX - grown.minX > CLUSTER_BOX ||
+          grown.maxY - grown.minY > CLUSTER_BOX;
+      }
+    }
+    if (breaks) {
       bursts.push(current);
       current = [];
     }
@@ -388,8 +411,15 @@ export function autoZoomRegions(
         Math.max(last.maxX, window.maxX) - Math.min(last.minX, window.minX),
         Math.max(last.maxY, window.maxY) - Math.min(last.minY, window.minY),
       );
+      // Overlapping windows are normally pushed apart rather than merged, so
+      // each target gets its own push-in. Merge only when one shot could
+      // frame both, or when separating them would leave nothing of either.
+      const mid = (last.end + window.start) / 2;
+      const cannotSeparate =
+        mid - MIN_PULLOUT / 2 - last.start < MIN_USEFUL ||
+        window.end - (mid + MIN_PULLOUT / 2) < MIN_USEFUL;
       const worthMerging =
-        unionSpread <= SPREAD_BUDGET / MERGE_MIN_SCALE || gap < FLICKER_GAP;
+        unionSpread <= SPREAD_BUDGET / MERGE_MIN_SCALE || cannotSeparate;
       if (worthMerging) {
         last.end = Math.max(last.end, window.end);
         last.minX = Math.min(last.minX, window.minX);
@@ -401,6 +431,19 @@ export function autoZoomRegions(
       }
     }
     merged.push(window);
+  }
+
+  // Anything that survived merging but still runs into its neighbour gets
+  // pushed apart, so each zoom lands, lets go, and the next one starts from
+  // a flat frame rather than sliding straight across.
+  for (let i = 0; i < merged.length - 1; i++) {
+    const a = merged[i];
+    const b = merged[i + 1];
+    if (a.end + MIN_PULLOUT > b.start) {
+      const mid = (a.end + b.start) / 2;
+      a.end = mid - MIN_PULLOUT / 2;
+      b.start = mid + MIN_PULLOUT / 2;
+    }
   }
 
   const out: ZoomRegion[] = [];
