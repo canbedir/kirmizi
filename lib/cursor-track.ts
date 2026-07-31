@@ -48,26 +48,25 @@ export interface CursorTrack {
   };
 }
 
+// Note on what this deliberately does *not* do: redraw the pointer.
+//
+// No browser will leave the system cursor out of a screen capture, so a
+// redrawn pointer is always a second one alongside the real thing. Covering
+// the original — with a colour patch, or even with correctly restored pixels
+// — trades one artifact for another, and drawing our own arrow at click time
+// fails too, because a click usually lands on a button where the real cursor
+// is a hand, not an arrow.
+//
+// So the pointer is left exactly as captured, and the polish goes into the
+// moment of the click instead. That's the same conclusion every browser-based
+// tool reaches, and it holds up: nothing here can ever be misaligned with
+// what the viewer sees, because it's anchored to the click itself.
+
 export interface CursorStyle {
-  /**
-   * Draw the synthetic pointer over the recording. Off by default: no browser
-   * currently honours `getDisplayMedia({video:{cursor:"never"}})`, so the real
-   * pointer is always baked into the capture and drawing ours on top shows two
-   * — the smoothed one visibly trailing the other.
-   */
-  show: boolean;
-  /** Pointer height as a fraction of the frame height. */
-  size: number;
-  /** Motion smoothing, 0 (raw) to 1 (very floaty). */
-  smoothing: number;
-  /** Draw a ripple where each click landed. */
+  /** Mark each click with an impact effect. */
   clicks: boolean;
-  /**
-   * Paint over the system cursor that's baked into the capture, so the
-   * redrawn one isn't a second pointer alongside it. No browser can leave
-   * the real cursor out of a screen capture, so covering it is the only way.
-   */
-  cover: boolean;
+  /** Effect size as a fraction of the frame height. */
+  size: number;
   /** Mix a synthesised click into the audio at each click. */
   sound: boolean;
   /** Build zoom regions from the recorded clicks, without being asked. */
@@ -75,11 +74,8 @@ export interface CursorStyle {
 }
 
 export const DEFAULT_CURSOR_STYLE: CursorStyle = {
-  show: false,
-  size: 0.05,
-  smoothing: 0.55,
-  clicks: false,
-  cover: true,
+  clicks: true,
+  size: 0.038,
   sound: false,
   autoZoom: true,
 };
@@ -92,143 +88,33 @@ const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
 
 /* ---------------------------------------------------------------- */
-/* Smoothed path                                                     */
+/* Click effects                                                     */
 /* ---------------------------------------------------------------- */
 
-/** A resampled, spring-smoothed pointer path, queryable by time. */
-export interface CursorPath {
-  /** Fixed timestep between points, seconds. */
-  step: number;
-  /** First point's time, seconds. */
-  t0: number;
-  xs: Float32Array;
-  ys: Float32Array;
-}
+/** How long a click effect stays on screen, seconds. */
+export const CLICK_LIFE = 0.55;
 
-const PATH_HZ = 120;
-
-/** Linear interpolation of the raw samples at `ms`. */
-function rawAt(samples: CursorSample[], ms: number): { x: number; y: number } {
-  if (ms <= samples[0].t) return samples[0];
-  const last = samples[samples.length - 1];
-  if (ms >= last.t) return last;
-  // Samples are ordered, so walk with a binary search.
-  let lo = 0;
-  let hi = samples.length - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid].t <= ms) lo = mid;
-    else hi = mid;
-  }
-  const a = samples[lo];
-  const b = samples[hi];
-  const span = b.t - a.t;
-  const k = span > 0 ? (ms - a.t) / span : 0;
-  return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
-}
-
-/**
- * Resample the pointer at a fixed rate and run it through a critically
- * damped spring. That's what turns jittery, hand-held mouse movement into
- * the gliding cursor people associate with polished product demos.
- */
-export function buildCursorPath(
-  track: CursorTrack,
-  smoothing: number,
-): CursorPath | null {
-  const samples = track.samples;
-  if (samples.length < 2) return null;
-
-  const step = 1 / PATH_HZ;
-  const t0 = samples[0].t / 1000;
-  const t1 = samples[samples.length - 1].t / 1000;
-  const count = Math.max(2, Math.ceil((t1 - t0) / step) + 1);
-  const xs = new Float32Array(count);
-  const ys = new Float32Array(count);
-
-  // Map smoothing 0..1 onto a stiffness range: high stiffness tracks the
-  // raw pointer almost exactly, low stiffness glides well behind it.
-  const stiffness = 420 - clamp(smoothing, 0, 1) * 380;
-  const damping = 2 * Math.sqrt(stiffness);
-
-  let px = samples[0].x;
-  let py = samples[0].y;
-  let vx = 0;
-  let vy = 0;
-  for (let i = 0; i < count; i++) {
-    const target = rawAt(samples, (t0 + i * step) * 1000);
-    const ax = stiffness * (target.x - px) - damping * vx;
-    const ay = stiffness * (target.y - py) - damping * vy;
-    vx += ax * step;
-    vy += ay * step;
-    px += vx * step;
-    py += vy * step;
-    xs[i] = px;
-    ys[i] = py;
-  }
-
-  return { step, t0, xs, ys };
-}
-
-/**
- * The pointer's unsmoothed position at `time` (seconds) — where the system
- * cursor actually is in the captured pixels, as opposed to where the redrawn
- * one is gliding.
- */
-export function rawCursorAt(
-  track: CursorTrack,
-  time: number,
-): { x: number; y: number } | null {
-  const samples = track.samples;
-  if (samples.length < 2) return null;
-  const ms = time * 1000;
-  if (ms < samples[0].t - 250 || ms > samples[samples.length - 1].t + 250) {
-    return null;
-  }
-  return rawAt(samples, ms);
-}
-
-/** The smoothed pointer position at `time` (seconds), or null if off-track. */
-export function cursorAt(
-  path: CursorPath,
-  time: number,
-): { x: number; y: number } | null {
-  const idx = (time - path.t0) / path.step;
-  if (idx < -1 || idx > path.xs.length) return null;
-  const i = clamp(Math.floor(idx), 0, path.xs.length - 1);
-  const j = Math.min(i + 1, path.xs.length - 1);
-  const k = clamp(idx - i, 0, 1);
-  return {
-    x: path.xs[i] + (path.xs[j] - path.xs[i]) * k,
-    y: path.ys[i] + (path.ys[j] - path.ys[i]) * k,
-  };
-}
-
-/* ---------------------------------------------------------------- */
-/* Click ripples                                                     */
-/* ---------------------------------------------------------------- */
-
-/** How long a click ripple stays on screen, seconds. */
-export const RIPPLE_LIFE = 0.5;
-
-export interface Ripple {
+export interface ClickEffect {
   x: number;
   y: number;
-  /** 0 → just clicked, 1 → fully faded. */
+  /** 0 → the instant of the click, 1 → fully faded. */
   progress: number;
   secondary: boolean;
 }
 
-/** Ripples that are still visible at `time` (seconds). */
-export function ripplesAt(track: CursorTrack, time: number): Ripple[] {
-  const out: Ripple[] = [];
+/** Click effects still playing at `time` (seconds). */
+export function clickEffectsAt(
+  track: CursorTrack,
+  time: number,
+): ClickEffect[] {
+  const out: ClickEffect[] = [];
   for (const click of track.clicks) {
     const age = time - click.t / 1000;
-    if (age < 0 || age > RIPPLE_LIFE) continue;
+    if (age < 0 || age > CLICK_LIFE) continue;
     out.push({
       x: click.x,
       y: click.y,
-      progress: age / RIPPLE_LIFE,
+      progress: age / CLICK_LIFE,
       secondary: click.button === 2,
     });
   }

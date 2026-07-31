@@ -18,10 +18,7 @@ import {
 } from "@/lib/scene";
 import type { CameraLayout } from "@/lib/camera-layout";
 import {
-  cursorAt,
-  rawCursorAt,
-  ripplesAt,
-  type CursorPath,
+  clickEffectsAt,
   type CursorStyle,
   type CursorTrack,
 } from "@/lib/cursor-track";
@@ -34,8 +31,6 @@ export interface SceneCamera {
 
 export interface SceneCursor {
   track: CursorTrack;
-  /** Smoothed path, prebuilt so every frame is a cheap lookup. */
-  path: CursorPath | null;
   style: CursorStyle;
 }
 
@@ -66,25 +61,7 @@ function roundRectPath(
 /* Cursor layer                                                      */
 /* ---------------------------------------------------------------- */
 
-/** The classic arrow, traced in a unit box: height 1, tip at the origin. */
-const ARROW: readonly [number, number][] = [
-  [0, 0],
-  [0, 0.75],
-  [0.19, 0.58],
-  [0.31, 0.85],
-  [0.42, 0.8],
-  [0.3, 0.53],
-  [0.53, 0.53],
-];
-
 const RED = "#f62d22";
-
-/**
- * Roughly how tall the system cursor is, as a fraction of frame height —
- * a 32px arrow on a 1080-tall capture. Only used to size the patch that
- * hides it, so approximate is fine.
- */
-const SYSTEM_CURSOR = 0.032;
 
 /** Normalised source point (0..1) → frame pixels, through the zoom crop. */
 function mapPoint(
@@ -101,124 +78,21 @@ function mapPoint(
   };
 }
 
+const easeOut = (p: number, power = 3) => 1 - Math.pow(1 - p, power);
+/** Remap a sub-phase of the effect onto its own 0..1. */
+const phase = (p: number, until: number) => Math.min(1, p / until);
+
 /**
- * The system cursor is always burned into a screen capture — no browser
- * implements a constraint to leave it out. To show a redrawn pointer without
- * a twin trailing it, the original has to be painted over.
+ * The click, in three layers that each run on their own clock.
  *
- * The patch is filled with the video's own colour taken from a ring around
- * the cursor, so on the flat UI that fills most recordings it disappears
- * entirely; over detail it reads as a small soft smudge, which still beats a
- * duplicate cursor. A 3×3 downscale of the surrounding box gives that ring
- * average in a single read.
+ * A halo lifts the moment off whatever's underneath, so the effect reads on
+ * dark and light interfaces alike. A core flashes and is gone within a fifth
+ * of a second — that's the part the eye registers as impact. The ring then
+ * expands and thins out over the rest, which is what makes it feel like a
+ * release rather than a blink. Everything is drawn twice, once in a dark
+ * shade a hair wider, so it stays legible against white UI.
  */
-let sampler: {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-} | null = null;
-
-function backgroundAround(
-  video: HTMLVideoElement,
-  sx: number,
-  sy: number,
-  box: number,
-): string | null {
-  if (!sampler) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 3;
-    canvas.height = 3;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return null;
-    sampler = { canvas, ctx };
-  }
-  const w = video.videoWidth;
-  const h = video.videoHeight;
-  if (!w || !h) return null;
-
-  // A box three times the cursor, centred on it: the outer ring is
-  // background, the centre cell is the cursor itself.
-  const size = box * 3;
-  const left = Math.max(0, Math.min(w - size, sx - box));
-  const top = Math.max(0, Math.min(h - size, sy - box));
-  try {
-    sampler.ctx.drawImage(video, left, top, size, size, 0, 0, 3, 3);
-    const data = sampler.ctx.getImageData(0, 0, 3, 3).data;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    let n = 0;
-    for (let i = 0; i < 9; i++) {
-      if (i === 4) continue; // skip the centre — that's the cursor
-      r += data[i * 4];
-      g += data[i * 4 + 1];
-      b += data[i * 4 + 2];
-      n++;
-    }
-    return `rgb(${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)})`;
-  } catch {
-    // A tainted canvas would throw; recordings are same-origin blobs, but
-    // there's no reason to take the whole frame down over it.
-    return null;
-  }
-}
-
-function coverCursor(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  size: number,
-  color: string,
-) {
-  // The arrow hangs down and to the right of its tip, so the patch is
-  // anchored there rather than centred. Soft edges let it melt into the
-  // surrounding pixels instead of showing a rectangle.
-  const cx = x + size * 0.3;
-  const cy = y + size * 0.45;
-  const radius = size * 0.75;
-  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.45, cx, cy, radius);
-  gradient.addColorStop(0, color);
-  gradient.addColorStop(0.75, color);
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-  ctx.save();
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawPointer(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  height: number,
-) {
-  ctx.save();
-  ctx.beginPath();
-  for (let i = 0; i < ARROW.length; i++) {
-    const px = x + ARROW[i][0] * height;
-    const py = y + ARROW[i][1] * height;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-
-  // A soft drop shadow lifts the pointer off busy screen content.
-  ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
-  ctx.shadowBlur = height * 0.18;
-  ctx.shadowOffsetY = height * 0.05;
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-
-  ctx.shadowColor = "transparent";
-  ctx.lineWidth = Math.max(1, height * 0.05);
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "rgba(20, 18, 16, 0.85)";
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawRipple(
+function drawClick(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -226,34 +100,64 @@ function drawRipple(
   progress: number,
   secondary: boolean,
 ) {
-  const eased = 1 - Math.pow(1 - progress, 3);
-  const radius = base * (0.3 + 0.7 * eased);
-  const fade = Math.pow(1 - progress, 1.5);
   const color = secondary ? RED : "#ffffff";
-
   ctx.save();
-  // Filled core that pops on impact and vanishes quickly.
-  ctx.globalAlpha = Math.pow(1 - progress, 3) * 0.28;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
 
-  // Expanding ring.
-  ctx.globalAlpha = fade * 0.9;
+  // 1. Halo — a soft bloom that fades over most of the life.
+  const haloP = phase(progress, 0.8);
+  const haloAlpha = (1 - haloP) * 0.22;
+  if (haloAlpha > 0.002) {
+    const haloR = base * (1.1 + 0.5 * easeOut(haloP));
+    const halo = ctx.createRadialGradient(x, y, 0, x, y, haloR);
+    halo.addColorStop(0, color);
+    halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.globalAlpha = haloAlpha;
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y, haloR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 2. Core — the impact. Brief, but it has to actually register.
+  const coreP = phase(progress, 0.32);
+  if (coreP < 1) {
+    ctx.globalAlpha = Math.pow(1 - coreP, 1.4) * 0.62;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, base * (0.5 - 0.14 * coreP), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 3. Ring — expands and thins, carrying the rest of the moment.
+  const ringP = easeOut(progress);
+  const radius = base * (0.34 + 0.78 * ringP);
+  const fade = Math.pow(1 - progress, 1.3);
+  const width = Math.max(1.5, base * (0.22 - 0.13 * ringP));
+  ctx.lineJoin = "round";
+  // Dark underlay first, so the ring survives on light backgrounds.
+  ctx.globalAlpha = fade * 0.3;
+  ctx.strokeStyle = "rgba(15, 13, 12, 1)";
+  ctx.lineWidth = width + Math.max(1, base * 0.045);
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.lineWidth = Math.max(1, base * 0.14 * fade + base * 0.04);
-  ctx.strokeStyle = color;
   ctx.stroke();
+
+  ctx.globalAlpha = fade * 0.95;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
   ctx.restore();
 }
 
 /**
- * Draw the smoothed pointer and any live click ripples over the video area.
- * Shared by the export renderer and the editor's preview overlay so both
- * show exactly the same thing. The pointer keeps a constant on-screen size
- * regardless of zoom — scaling it with the crop would make it balloon.
+ * Draw the click effects over the video area. Shared by the export renderer
+ * and the editor's preview overlay so both show exactly the same thing.
+ *
+ * The effect keeps a constant on-screen size regardless of zoom: growing it
+ * with the crop would turn a 3× push-in into a dinner plate.
  */
 export function drawCursorLayer(
   ctx: CanvasRenderingContext2D,
@@ -264,58 +168,21 @@ export function drawCursorLayer(
   frameW: number,
   frameH: number,
   radius = 0,
-  video?: HTMLVideoElement | null,
 ) {
-  const { track, path, style } = cursor;
-  // Ripples stand on their own: they mark clicks, which the captured pointer
-  // never shows. They don't depend on us redrawing the pointer.
-  if (!style.show && !style.clicks) return;
+  const { track, style } = cursor;
+  if (!style.clicks) return;
+
+  const effects = clickEffectsAt(track, time);
+  if (!effects.length) return;
 
   ctx.save();
   roundRectPath(ctx, rect, radius);
   ctx.clip();
 
-  const pointerH = style.size * frameH;
-
-  // Hide the captured cursor before anything is drawn over it.
-  if (style.show && style.cover && video) {
-    const raw = rawCursorAt(track, time);
-    if (raw) {
-      // The system cursor is a fixed size on screen, so it scales with the
-      // crop the same way the video does.
-      const onScreen = SYSTEM_CURSOR * frameH * (rect.h / crop.h);
-      const color = backgroundAround(
-        video,
-        raw.x * frameW,
-        raw.y * frameH,
-        SYSTEM_CURSOR * frameH,
-      );
-      if (color) {
-        const p = mapPoint(raw.x, raw.y, crop, rect, frameW, frameH);
-        coverCursor(ctx, p.x, p.y, onScreen, color);
-      }
-    }
-  }
-  if (style.clicks) {
-    for (const ripple of ripplesAt(track, time)) {
-      const p = mapPoint(ripple.x, ripple.y, crop, rect, frameW, frameH);
-      drawRipple(
-        ctx,
-        p.x,
-        p.y,
-        pointerH * 1.5,
-        ripple.progress,
-        ripple.secondary,
-      );
-    }
-  }
-
-  if (style.show && path) {
-    const at = cursorAt(path, time);
-    if (at) {
-      const p = mapPoint(at.x, at.y, crop, rect, frameW, frameH);
-      drawPointer(ctx, p.x, p.y, pointerH);
-    }
+  const base = style.size * frameH;
+  for (const effect of effects) {
+    const p = mapPoint(effect.x, effect.y, crop, rect, frameW, frameH);
+    drawClick(ctx, p.x, p.y, base, effect.progress, effect.secondary);
   }
   ctx.restore();
 }
@@ -429,17 +296,7 @@ export function drawSceneFrame(
   ctx.restore();
 
   if (scene.cursor) {
-    drawCursorLayer(
-      ctx,
-      scene.cursor,
-      time,
-      crop,
-      rect,
-      frameW,
-      frameH,
-      radius,
-      video,
-    );
+    drawCursorLayer(ctx, scene.cursor, time, crop, rect, frameW, frameH, radius);
   }
 
   if (scene.camera && camVideo && camVideo.readyState >= 2) {

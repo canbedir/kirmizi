@@ -44,7 +44,6 @@ import {
 import {
   DEFAULT_CURSOR_STYLE,
   autoZoomRegions,
-  buildCursorPath,
   hasCursorData,
   type CursorStyle,
 } from "@/lib/cursor-track";
@@ -168,54 +167,14 @@ export function Editor({
     (s) => playhead > s.start + 0.15 && playhead < s.end - 0.15,
   );
 
-  // The smoothed path only needs rebuilding when the smoothing changes.
-  const cursorPath = useMemo(
-    () =>
-      cursorTrack ? buildCursorPath(cursorTrack, cursorStyle.smoothing) : null,
-    [cursorTrack, cursorStyle.smoothing],
-  );
-  // The cursor layer is in play whenever any of its three uses is on — the
-  // pointer, the ripples, or the sound. Each stands alone.
+  // The cursor layer is in play whenever the highlight or the sound is on.
   const sceneCursor: SceneCursor | null = useMemo(
     () =>
-      cursorTrack &&
-      (cursorStyle.show || cursorStyle.clicks || cursorStyle.sound)
-        ? { track: cursorTrack, path: cursorPath, style: cursorStyle }
+      cursorTrack && (cursorStyle.clicks || cursorStyle.sound)
+        ? { track: cursorTrack, style: cursorStyle }
         : null,
-    [cursorTrack, cursorPath, cursorStyle],
+    [cursorTrack, cursorStyle],
   );
-
-  // Temporary readout for chasing effects landing in the wrong place: what
-  // the browser said it captured, versus where the first clicks were logged.
-  const cursorDiagnostics = useMemo(() => {
-    if (!cursorTrack) return undefined;
-    const cap = recording.capture;
-    const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-    const screenPart =
-      typeof screen !== "undefined"
-        ? `screen ${screen.width}x${screen.height} dpr ${dpr} (phys ${Math.round(
-            screen.width * dpr,
-          )}x${Math.round(screen.height * dpr)})`
-        : "screen ?";
-    const capPart = cap
-      ? `capture ${cap.displaySurface ?? "?"} ${cap.width}x${cap.height}`
-      : "capture ?";
-    const first = cursorTrack.clicks
-      .slice(0, 3)
-      .map((c) => `(${c.x.toFixed(3)}, ${c.y.toFixed(3)})`)
-      .join(" ");
-    const zoomPart = cursorTrack.zoomRange
-      ? ` · tab zoom ${cursorTrack.zoomRange[0].toFixed(2)}–${cursorTrack.zoomRange[1].toFixed(2)}`
-      : "";
-    const spacePart = cursorTrack.space
-      ? ` · space ${cursorTrack.space}${
-          cursorTrack.displayBounds
-            ? ` ${cursorTrack.displayBounds.width}x${cursorTrack.displayBounds.height}@${cursorTrack.displayBounds.left},${cursorTrack.displayBounds.top}`
-            : ""
-        }`
-      : "";
-    return `${capPart} · ${screenPart}${zoomPart}${spacePart} · samples ${cursorTrack.samples.length} · first clicks ${first || "none"}`;
-  }, [cursorTrack, recording.capture]);
 
   const cameraOn = !!camera && !camHidden;
   const hasScene = sceneActive(frameStyle, zooms) || cameraOn || !!sceneCursor;
@@ -527,7 +486,6 @@ export function Editor({
               geo.frameW,
               geo.frameH,
               geo.radius,
-              video,
             );
           }
         }
@@ -1192,7 +1150,6 @@ export function Editor({
               style={cursorStyle}
               clickCount={cursorTrack.clicks.length}
               zoomCount={zooms.filter((z) => z.auto).length}
-              diagnostics={cursorDiagnostics}
               onChange={applyCursorStyle}
             />
           )}

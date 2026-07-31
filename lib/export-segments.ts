@@ -119,8 +119,7 @@ export async function exportSegments(
 
   // Only a scene with something to *draw* needs the canvas; click sound alone
   // is mixed through the audio graph either way.
-  const drawsCursor =
-    !!scene?.cursor && (scene.cursor.style.show || scene.cursor.style.clicks);
+  const drawsCursor = !!scene?.cursor && scene.cursor.style.clicks;
   const useScene =
     !!scene &&
     (sceneActive(scene.style, scene.zooms) || !!scene.camera || drawsCursor);
