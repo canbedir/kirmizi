@@ -6,6 +6,35 @@
 
 let recording = false;
 let events = [];
+// The OS's own account of the connected displays, in the same coordinate
+// space as event.screenX/screenY. This is what click positions are measured
+// against — page-reported screen metrics have proven unreliable (zoom,
+// fingerprint shielding, and scaled desktops all distort them).
+let displays = null;
+
+function refreshDisplays() {
+  try {
+    chrome.system.display.getInfo((info) => {
+      if (chrome.runtime.lastError || !info) return;
+      displays = info.map((d) => ({
+        left: d.bounds.left,
+        top: d.bounds.top,
+        width: d.bounds.width,
+        height: d.bounds.height,
+        primary: !!d.isPrimary,
+      }));
+    });
+  } catch {
+    displays = null;
+  }
+}
+
+refreshDisplays();
+try {
+  chrome.system.display.onDisplayChanged.addListener(refreshDisplays);
+} catch {
+  /* not available — the app falls back to page-reported metrics */
+}
 
 // A hard ceiling so a forgotten recording can't grow without bound. At the
 // collector's sampling rate this is roughly three hours of movement.
@@ -33,6 +62,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case "start":
       recording = true;
       events = [];
+      refreshDisplays();
       broadcast({ type: "collect-start" });
       sendResponse({ ok: true });
       break;
@@ -47,7 +77,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         recording = false;
         const collected = events;
         events = [];
-        sendResponse({ ok: true, events: collected });
+        sendResponse({ ok: true, events: collected, displays });
       }, DRAIN_MS);
       return true; // keep the message channel open for the async reply
     }

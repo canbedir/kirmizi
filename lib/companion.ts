@@ -44,12 +44,23 @@ export interface RawPointerEvent {
   click?: number;
 }
 
+/** One display's bounds, from the OS via chrome.system.display — the same
+ * coordinate space event.screenX/screenY live in. */
+export interface DisplayBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  primary?: boolean;
+}
+
 interface ExtMessage {
   source: typeof EXT;
   type: "ready" | "started" | "events" | "error";
   requestId?: number;
   version?: string;
   events?: RawPointerEvent[];
+  displays?: DisplayBounds[] | null;
   message?: string;
 }
 
@@ -105,9 +116,12 @@ export async function companionStart(startedAt: number): Promise<boolean> {
 }
 
 /** Stop collecting and return everything captured. */
-export async function companionStop(): Promise<RawPointerEvent[]> {
+export async function companionStop(): Promise<{
+  events: RawPointerEvent[];
+  displays: DisplayBounds[] | null;
+}> {
   const reply = await ask("stop", "events", {}, 4000);
-  return reply?.events ?? [];
+  return { events: reply?.events ?? [], displays: reply?.displays ?? null };
 }
 
 /* ---------------------------------------------------------------- */
@@ -127,6 +141,8 @@ export interface TrackBuildOptions {
   pauses: PauseWindow[];
   /** What was captured, from the video track's settings. */
   displaySurface?: string;
+  /** Display bounds from the OS, if the companion could supply them. */
+  displays?: DisplayBounds[] | null;
 }
 
 /**
@@ -142,10 +158,18 @@ export function buildCursorTrack(
   events: RawPointerEvent[],
   options: TrackBuildOptions,
 ): CursorTrack {
-  const { startedAt, pauses, displaySurface } = options;
+  const { startedAt, pauses, displaySurface, displays } = options;
   // Window captures don't line up with either space (we'd need the window's
   // screen offset, which isn't exposed), so those get no cursor track.
   const useViewport = displaySurface === "browser";
+
+  // The display we normalise against: the OS's own bounds for the (single)
+  // screen, in the very coordinate space event.screenX is measured in. Pages
+  // have proven unable to report their screen honestly — zoom, fingerprint
+  // shielding, and scaled desktops all distort screen.width — so the page's
+  // metrics are only a fallback for an outdated companion.
+  const display =
+    displays?.find((d) => d.primary) ?? displays?.[0] ?? null;
 
   const samples: CursorSample[] = [];
   const clicks: CursorClick[] = [];
@@ -167,10 +191,13 @@ export function buildCursorTrack(
     if (useViewport) {
       x = event.vx;
       y = event.vy;
+    } else if (event.screenX !== undefined && display && display.width > 0) {
+      // Both sides of this division come from the OS, so they cannot
+      // disagree about units.
+      x = (event.screenX - display.left) / display.width;
+      y = ((event.screenY ?? 0) - display.top) / display.height;
     } else if (event.screenX !== undefined && event.sw) {
-      // Divide like with like: event.screenX is in device-independent
-      // pixels, screen.width in CSS pixels — they differ by the tab's zoom
-      // factor, so a zoomed page would otherwise shrink every coordinate.
+      // No display info (companion 1.0.2) — page metrics, zoom-corrected.
       const zoom = event.zoom || 1;
       zoomMin = Math.min(zoomMin, zoom);
       zoomMax = Math.max(zoomMax, zoom);
@@ -203,6 +230,12 @@ export function buildCursorTrack(
   clicks.sort((a, b) => a.t - b.t);
   const track: CursorTrack = { samples, clicks };
   if (Number.isFinite(zoomMin)) track.zoomRange = [zoomMin, zoomMax];
+  track.space = useViewport
+    ? "viewport"
+    : display
+      ? "display"
+      : "page-metrics";
+  if (display) track.displayBounds = { ...display };
   return track;
 }
 

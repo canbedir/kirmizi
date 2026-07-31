@@ -36,6 +36,16 @@ export interface CursorTrack {
   clicks: CursorClick[];
   /** Range of per-tab zoom factors seen while collecting (diagnostic). */
   zoomRange?: [number, number];
+  /** Which coordinate space positions were normalised in (diagnostic). */
+  space?: "viewport" | "display" | "page-metrics";
+  /** The OS display bounds used, when space is "display" (diagnostic). */
+  displayBounds?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    primary?: boolean;
+  };
 }
 
 export interface CursorStyle {
@@ -415,6 +425,14 @@ export function autoZoomRegions(
         Math.max(last.maxX, window.maxX) - Math.min(last.minX, window.minX),
         Math.max(last.maxY, window.maxY) - Math.min(last.minY, window.minY),
       );
+      // A click somewhere new is its own moment, never absorbed into the
+      // region before it — that's the difference between "zoom follows what
+      // I did" and one wide frame parked over everything.
+      const distance = Math.hypot(
+        (window.minX + window.maxX) / 2 - (last.minX + last.maxX) / 2,
+        (window.minY + window.maxY) / 2 - (last.minY + last.maxY) / 2,
+      );
+      const clickSomewhereNew = window.strong && distance > CLUSTER_BOX;
       // Overlapping windows are normally pushed apart rather than merged, so
       // each target gets its own push-in. Merge only when one shot could
       // frame both, or when separating them would leave nothing of either.
@@ -423,7 +441,8 @@ export function autoZoomRegions(
         mid - MIN_PULLOUT / 2 - last.start < MIN_USEFUL ||
         window.end - (mid + MIN_PULLOUT / 2) < MIN_USEFUL;
       const worthMerging =
-        unionSpread <= SPREAD_BUDGET / MERGE_MIN_SCALE || cannotSeparate;
+        !clickSomewhereNew &&
+        (unionSpread <= SPREAD_BUDGET / MERGE_MIN_SCALE || cannotSeparate);
       if (worthMerging) {
         last.end = Math.max(last.end, window.end);
         last.minX = Math.min(last.minX, window.minX);

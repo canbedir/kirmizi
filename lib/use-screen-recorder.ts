@@ -536,10 +536,12 @@ export function useScreenRecorder(): UseScreenRecorder {
           }
           let cursor: CursorTrack | null = null;
           if (cursorOk) {
-            const built = buildCursorTrack(await companionStop(), {
+            const collected = await companionStop();
+            const built = buildCursorTrack(collected.events, {
               startedAt: cursorStartedAtRef.current,
               pauses: pausesRef.current,
               displaySurface,
+              displays: collected.displays,
             });
             if (hasCursorData(built)) cursor = built;
           }

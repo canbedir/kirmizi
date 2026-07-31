@@ -207,7 +207,14 @@ export function Editor({
     const zoomPart = cursorTrack.zoomRange
       ? ` · tab zoom ${cursorTrack.zoomRange[0].toFixed(2)}–${cursorTrack.zoomRange[1].toFixed(2)}`
       : "";
-    return `${capPart} · ${screenPart}${zoomPart} · samples ${cursorTrack.samples.length} · first clicks ${first || "none"}`;
+    const spacePart = cursorTrack.space
+      ? ` · space ${cursorTrack.space}${
+          cursorTrack.displayBounds
+            ? ` ${cursorTrack.displayBounds.width}x${cursorTrack.displayBounds.height}@${cursorTrack.displayBounds.left},${cursorTrack.displayBounds.top}`
+            : ""
+        }`
+      : "";
+    return `${capPart} · ${screenPart}${zoomPart}${spacePart} · samples ${cursorTrack.samples.length} · first clicks ${first || "none"}`;
   }, [cursorTrack, recording.capture]);
 
   const cameraOn = !!camera && !camHidden;

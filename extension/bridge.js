@@ -32,7 +32,10 @@
       }
       if (type === "stop") {
         const result = await chrome.runtime.sendMessage({ type: "stop" });
-        reply(requestId, "events", { events: result?.events ?? [] });
+        reply(requestId, "events", {
+          events: result?.events ?? [],
+          displays: result?.displays ?? null,
+        });
         return;
       }
     } catch (error) {

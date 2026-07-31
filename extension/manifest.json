@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Kırmızı Companion",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Adds smooth cursor motion, click effects, and automatic zoom to Kırmızı screen recordings. Nothing leaves your device.",
   "homepage_url": "https://kirmizi.app",
+  "permissions": ["system.display"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "icons/icon-16.png",
