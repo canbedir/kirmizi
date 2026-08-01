@@ -8,11 +8,16 @@ export const siteConfig = {
   githubUrl: "https://github.com/canbedir/kirmizi",
 } as const;
 
-export const navLinks = [
+export const navLinks: {
+  label: string;
+  href: string;
+  /** Marks the link with the record dot — something newly landed. */
+  isNew?: boolean;
+}[] = [
   { label: "How it works", href: "/#how-it-works" },
   { label: "Features", href: "/#features" },
-  { label: "Studio", href: "/studio" },
-] as const;
+  { label: "Studio", href: "/studio", isNew: true },
+];
 
 // Social / source links for the hero row. `icon` maps to a component in the
 // hero; add x / bluesky here once those handles exist.

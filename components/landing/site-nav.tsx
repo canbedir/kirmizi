@@ -36,9 +36,16 @@ export function SiteNav() {
             <Link
               key={link.href}
               href={link.href}
-              className="transition-colors hover:text-foreground"
+              className="relative transition-colors hover:text-foreground"
             >
               {link.label}
+              {/* Written over the word's last letter like a margin note, in
+                  the same italic red serif the headlines lean on. */}
+              {link.isNew && (
+                <span className="pointer-events-none absolute -top-3 left-[91%] -translate-x-1/2 rotate-14 font-serif text-sm leading-none text-red italic">
+                  new
+                </span>
+              )}
             </Link>
           ))}
           <a

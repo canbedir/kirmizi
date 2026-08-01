@@ -1,27 +1,42 @@
 "use client";
 
+import { useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
-// A loop of what the editor does on its own: the pointer lands somewhere, the
-// click is marked, and the frame eases in on it before letting go again.
+// A loop of what the editor does on its own: the pointer travels, lands on
+// something, the click is marked, and the frame eases in before letting go.
 // Everything is markup — no video, no images, so it costs nothing to ship.
 
-const LOOP = 9;
-/** Beats of the loop, as fractions of its length. */
-const T = [0, 0.13, 0.22, 0.38, 0.47, 0.6, 0.69, 0.84, 0.93, 1];
 const SCALE = 1.9;
 
-// Two things worth looking at, as fractions of the frame. These are the
-// centres of real elements in the mock below — the primary button and the
-// middle card — and both sit inside the range a 1.9× crop can reach without
-// running off an edge.
-const A = { x: 0.343, y: 0.682 };
-const B = { x: 0.555, y: 0.29 };
+// Beats within one target's turn, in seconds.
+const ARRIVE = 0.75; // pointer reaches it — the click lands here
+const IN_END = 1.35; // fully pushed in
+const HOLD_END = 2.15; // held
+const CYCLE = 2.65; // and back out, ready for the next
 
-/** Offset that brings a point to the middle of the frame once magnified. */
-const offset = (f: number) => `${(0.5 - f * SCALE) * 100}%`;
+// Four things worth clicking, as fractions of the frame. Each is the centre
+// of a real element in the mock below, and each sits inside the range a 1.9×
+// crop can reach without running off an edge.
+const TARGETS = [
+  { x: 0.305, y: 0.28 }, // the block inside the first card
+  { x: 0.555, y: 0.28 }, // and the second
+  { x: 0.343, y: 0.682 }, // primary button
+  { x: 0.54, y: 0.682 }, // the action beside it
+];
 
-const ease = [0.22, 1, 0.36, 1] as const;
+const TOTAL = TARGETS.length * CYCLE;
+
+const TRAVEL = [0.4, 0, 0.2, 1] as const; // a hand speeding up, then settling
+const PUSH = [0.22, 1, 0.36, 1] as const; // the site's own ease, for the zoom
+
+interface Key {
+  t: number;
+  scale: number;
+  p: { x: number; y: number };
+  /** True on the frame the click lands, for the pointer's press. */
+  press?: boolean;
+}
 
 function Pointer({ className }: { className?: string }) {
   return (
@@ -37,27 +52,60 @@ function Pointer({ className }: { className?: string }) {
   );
 }
 
-function Ripple({ at, beat }: { at: { x: number; y: number }; beat: number }) {
+/**
+ * The click, in the same three layers the exporter draws: a halo for
+ * legibility, a core that reads as impact, and a ring that expands and thins.
+ */
+function ClickMark({ at, beat }: { at: { x: number; y: number }; beat: number }) {
+  const common = {
+    duration: TOTAL,
+    repeat: Infinity,
+    ease: "easeOut" as const,
+  };
+  const place = {
+    left: `${at.x * 100}%`,
+    top: `${at.y * 100}%`,
+    translate: "-50% -50%",
+  };
+
+  // The keyframe just before the beat is what keeps the mark hidden until
+  // the click: without it the opacity ramps up from the top of the loop and
+  // the effect appears seconds early.
+  const hold = Math.max(0, beat - 0.004);
+
   return (
-    <motion.span
-      aria-hidden
-      className="absolute rounded-full border-2 border-white"
-      style={{
-        left: `${at.x * 100}%`,
-        top: `${at.y * 100}%`,
-        width: "5%",
-        aspectRatio: "1",
-        translate: "-50% -50%",
-      }}
-      initial={{ opacity: 0, scale: 0.3 }}
-      animate={{ opacity: [0, 0.95, 0, 0], scale: [0.3, 0.4, 1.6, 1.6] }}
-      transition={{
-        duration: LOOP,
-        times: [0, beat, beat + 0.07, 1],
-        repeat: Infinity,
-        ease: "easeOut",
-      }}
-    />
+    <>
+      <motion.span
+        aria-hidden
+        className="absolute rounded-full bg-white/70 blur-md"
+        style={{ ...place, width: "7%", aspectRatio: "1" }}
+        animate={{
+          opacity: [0, 0, 0.5, 0, 0],
+          scale: [0.6, 0.6, 1.5, 1.9, 1.9],
+        }}
+        transition={{ ...common, times: [0, hold, beat, beat + 0.055, 1] }}
+      />
+      <motion.span
+        aria-hidden
+        className="absolute rounded-full bg-white"
+        style={{ ...place, width: "2.6%", aspectRatio: "1" }}
+        animate={{
+          opacity: [0, 0, 0.75, 0, 0],
+          scale: [0.7, 0.7, 1, 0.6, 0.6],
+        }}
+        transition={{ ...common, times: [0, hold, beat, beat + 0.022, 1] }}
+      />
+      <motion.span
+        aria-hidden
+        className="absolute rounded-full border-2 border-white"
+        style={{ ...place, width: "5%", aspectRatio: "1" }}
+        animate={{
+          opacity: [0, 0, 0.95, 0, 0],
+          scale: [0.35, 0.35, 0.5, 1.7, 1.7],
+        }}
+        transition={{ ...common, times: [0, hold, beat, beat + 0.06, 1] }}
+      />
+    </>
   );
 }
 
@@ -83,23 +131,21 @@ function MockApp() {
         <div className="absolute top-[32%] right-[4%] h-[34%] w-[14%] rounded-full bg-[#e9e6df]" />
       </div>
 
-      {/* cards — the right-hand one is target B */}
-      {[0.19, 0.44, 0.69].map((left, i) => (
+      {/* cards — the first two are targets */}
+      {[0.19, 0.44, 0.69].map((left) => (
         <div
           key={left}
           className="absolute top-[16%] h-[26%] rounded-md bg-white"
           style={{ left: `${left * 100}%`, width: "23%" }}
         >
-          <div className="absolute top-[16%] left-[10%] h-[11%] w-[52%] rounded-sm bg-[#e9e6df]" />
-          <div className="absolute top-[36%] left-[10%] h-[22%] w-[38%] rounded-sm bg-[#15130f]" />
-          <div className="absolute bottom-[16%] left-[10%] h-[8%] w-[74%] rounded-sm bg-[#eceae4]" />
-          {i === 2 && (
-            <div className="absolute inset-0 rounded-md ring-2 ring-red/0" />
-          )}
+          <div className="absolute top-[14%] left-[10%] h-[10%] w-[52%] rounded-sm bg-[#e9e6df]" />
+          {/* Centred in the card, so the pointer's target is its middle. */}
+          <div className="absolute top-[34%] left-[25%] h-[24%] w-[50%] rounded-sm bg-[#15130f]" />
+          <div className="absolute bottom-[14%] left-[10%] h-[8%] w-[74%] rounded-sm bg-[#eceae4]" />
         </div>
       ))}
 
-      {/* main panel — its button is target A, centred at (34.3%, 68.2%) */}
+      {/* main panel — its two actions are the other targets */}
       <div className="absolute top-[48%] right-[8%] bottom-[8%] left-[19%] rounded-md bg-white">
         {[10, 24, 62, 76].map((top, i) => (
           <div
@@ -109,6 +155,7 @@ function MockApp() {
           />
         ))}
         <div className="absolute top-[38%] left-[8%] h-[16%] w-[26%] rounded-md bg-red" />
+        <div className="absolute top-[38%] left-[38%] h-[16%] w-[20%] rounded-md border border-[#dedbd3] bg-[#f4f2ee]" />
       </div>
     </div>
   );
@@ -117,71 +164,71 @@ function MockApp() {
 export function ZoomDemo() {
   const reduce = useReducedMotion();
 
-  const frame = {
-    scale: [1, 1, SCALE, SCALE, 1, 1, SCALE, SCALE, 1, 1],
-    x: [
-      "0%",
-      "0%",
-      offset(A.x),
-      offset(A.x),
-      "0%",
-      "0%",
-      offset(B.x),
-      offset(B.x),
-      "0%",
-      "0%",
-    ],
-    y: [
-      "0%",
-      "0%",
-      offset(A.y),
-      offset(A.y),
-      "0%",
-      "0%",
-      offset(B.y),
-      offset(B.y),
-      "0%",
-      "0%",
-    ],
-  };
+  const timeline = useMemo(() => {
+    // Start where the loop ends, so the wrap is invisible.
+    const keys: Key[] = [
+      { t: 0, scale: 1, p: TARGETS[TARGETS.length - 1] },
+    ];
+    TARGETS.forEach((target, i) => {
+      const base = i * CYCLE;
+      keys.push({ t: base + ARRIVE, scale: 1, p: target, press: true });
+      keys.push({ t: base + IN_END, scale: SCALE, p: target });
+      keys.push({ t: base + HOLD_END, scale: SCALE, p: target });
+      keys.push({ t: base + CYCLE, scale: 1, p: target });
+    });
 
-  const at = (p: { x: number; y: number }) => ({
-    left: `${p.x * 100}%`,
-    top: `${p.y * 100}%`,
-  });
-  const start = { x: 0.22, y: 0.46 };
-  const walk = [start, A, A, A, A, B, B, B, B, start];
-  const pointer = {
-    left: walk.map((p) => at(p).left),
-    top: walk.map((p) => at(p).top),
-  };
+    const times = keys.map((k) => k.t / TOTAL);
+    // A translate of zero at rest; once magnified, whatever brings the target
+    // to the middle of the frame.
+    const shift = (f: number, s: number) =>
+      s === 1 ? "0%" : `${(0.5 - f * s) * 100}%`;
+
+    return {
+      times,
+      // One easing per transition: travel gets a hand-like curve, the zoom
+      // gets the site's.
+      ease: keys.slice(1).map((k, i) => (k.p === keys[i].p ? PUSH : TRAVEL)),
+      frame: {
+        scale: keys.map((k) => k.scale),
+        x: keys.map((k) => shift(k.p.x, k.scale)),
+        y: keys.map((k) => shift(k.p.y, k.scale)),
+      },
+      pointer: {
+        left: keys.map((k) => `${k.p.x * 100}%`),
+        top: keys.map((k) => `${k.p.y * 100}%`),
+        scale: keys.map((k) => (k.press ? 0.86 : 1)),
+      },
+      beats: TARGETS.map((_, i) => (i * CYCLE + ARRIVE) / TOTAL),
+    };
+  }, []);
 
   const loop = {
-    duration: LOOP,
-    times: T,
+    duration: TOTAL,
+    times: timeline.times,
+    ease: timeline.ease,
     repeat: Infinity,
-    ease,
-  } as const;
+  };
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.7)]">
       <div className="relative aspect-video">
         <motion.div
           className="absolute inset-0 origin-top-left"
-          animate={reduce ? undefined : frame}
+          animate={reduce ? undefined : timeline.frame}
           transition={loop}
         >
           <MockApp />
 
           {!reduce && (
             <>
-              <Ripple at={A} beat={T[1]} />
-              <Ripple at={B} beat={T[5]} />
+              {TARGETS.map((target, i) => (
+                <ClickMark key={i} at={target} beat={timeline.beats[i]} />
+              ))}
               {/* The arrow's tip is its own origin, so left/top place it exactly. */}
               <motion.div
-                className="absolute"
+                className="absolute origin-top-left"
                 style={{ width: "2.6%" }}
-                animate={pointer}
+                animate={timeline.pointer}
                 transition={loop}
               >
                 <Pointer className="h-auto w-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]" />
