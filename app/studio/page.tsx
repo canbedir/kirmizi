@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/landing/site-footer";
 import { ClosingCta } from "@/components/landing/closing-cta";
 import { StudioHero } from "@/components/studio/studio-hero";
 import { StudioShowcase } from "@/components/studio/studio-showcase";
+import { EditorShot } from "@/components/studio/editor-shot";
 import { StudioFeatures } from "@/components/studio/studio-features";
 import { CompanionNote } from "@/components/studio/companion-note";
 import { siteConfig } from "@/lib/site";
@@ -28,6 +29,7 @@ export default function StudioPage() {
       <main id="main-content" className="flex-1">
         <StudioHero />
         <StudioShowcase />
+        <EditorShot />
         <StudioFeatures />
         <CompanionNote />
         <ClosingCta />

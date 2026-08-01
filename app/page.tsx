@@ -3,6 +3,7 @@ import { Hero } from "@/components/landing/hero";
 import { ProductPeek } from "@/components/landing/product-peek";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Features } from "@/components/landing/features";
+import { StudioTeaser } from "@/components/landing/studio-teaser";
 import { ClosingCta } from "@/components/landing/closing-cta";
 import { SiteFooter } from "@/components/landing/site-footer";
 
@@ -15,6 +16,7 @@ export default function HomePage() {
         <ProductPeek />
         <HowItWorks />
         <Features />
+        <StudioTeaser />
         <ClosingCta />
       </main>
       <SiteFooter />
