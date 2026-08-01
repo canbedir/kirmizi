@@ -204,3 +204,102 @@ export function NavPennant() {
     />
   );
 }
+
+/* Nav 08 — shimmer pill. A NEW badge with a bright band sweeping across every
+   few seconds. Motion happens on its own — no hover needed. */
+export function NavShimmer() {
+  return (
+    <NavShell
+      caption="Nav 08 — Shimmer pill (always-on)"
+      studio={
+        <a
+          href="/studio"
+          className="group inline-flex cursor-pointer items-center gap-1.5 text-foreground"
+        >
+          Studio
+          <span className="nav-shimmer rounded-full px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold tracking-[0.12em] text-red-foreground uppercase shadow-sm">
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}
+
+/* Nav 09 — attention wiggle. A pennant-style tag that gives a tiny periodic
+   wiggle to catch the eye, then rests. */
+export function NavWiggle() {
+  return (
+    <NavShell
+      caption="Nav 09 — Attention wiggle (always-on)"
+      studio={
+        <a
+          href="/studio"
+          className="group relative inline-flex cursor-pointer items-center text-foreground"
+        >
+          Studio
+          <span
+            aria-hidden
+            className="nav-wiggle pointer-events-none absolute -right-3 -top-3 rounded-sm bg-red px-1.5 py-px font-mono text-[0.5rem] font-semibold leading-none tracking-[0.12em] text-red-foreground uppercase shadow-md"
+          >
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}
+
+/* Nav 10 — recording playhead. A red bar sweeps under the word on a loop, like
+   a recording timeline — the most "Studio-native" motion. */
+export function NavPlayhead() {
+  return (
+    <NavShell
+      caption="Nav 10 — Recording playhead (always-on)"
+      studio={
+        <a
+          href="/studio"
+          className="group relative inline-flex cursor-pointer items-center gap-1.5 text-foreground"
+        >
+          <span className="relative">
+            Studio
+            <span className="absolute -bottom-1 left-0 h-0.5 w-full overflow-hidden rounded-full bg-red/15">
+              <span className="nav-playhead block h-full w-full rounded-full bg-red" />
+            </span>
+          </span>
+          <span className="font-mono text-[0.6rem] font-semibold tracking-[0.12em] text-red uppercase">
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}
+
+/* Nav 11 — radar ping. A live dot that emits an expanding ring on a loop,
+   pulling focus like a "record is live" indicator. */
+export function NavPing() {
+  return (
+    <NavShell
+      caption="Nav 11 — Radar ping (always-on)"
+      studio={
+        <a
+          href="/studio"
+          className="group inline-flex cursor-pointer items-center gap-2 text-foreground"
+        >
+          <span className="relative flex size-1.5 items-center justify-center">
+            <span
+              aria-hidden
+              className="nav-ping absolute size-1.5 rounded-full bg-red"
+            />
+            <span className="relative size-1.5 rounded-full bg-red" />
+          </span>
+          Studio
+          <span className="rounded-full border border-red/40 px-1.5 py-px font-mono text-[0.55rem] font-semibold tracking-[0.12em] text-red uppercase">
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}

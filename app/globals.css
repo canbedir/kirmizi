@@ -202,6 +202,95 @@ body::before {
   animation: btn-record-blink 1.6s ease-in-out infinite;
 }
 
+/* ---------------------------------------------------------------------------
+   Navbar "new" markers — always-on, low-key motion so the Studio tab catches
+   the eye without a hover. Each is a small red accent, never a filled surface.
+--------------------------------------------------------------------------- */
+
+/* A bright band that sweeps across the NEW pill every few seconds. */
+@keyframes nav-shimmer {
+  0%,
+  60%,
+  100% {
+    background-position: 200% 0;
+  }
+  80% {
+    background-position: -60% 0;
+  }
+}
+
+.nav-shimmer {
+  background-image: linear-gradient(
+    110deg,
+    var(--red) 0%,
+    var(--red) 38%,
+    #ff8a6e 50%,
+    var(--red) 62%,
+    var(--red) 100%
+  );
+  background-size: 220% 100%;
+  animation: nav-shimmer 4.5s ease-in-out infinite;
+}
+
+/* A tiny periodic wiggle to draw the eye, then rest. */
+@keyframes nav-wiggle {
+  0%,
+  88%,
+  100% {
+    transform: rotate(0deg);
+  }
+  91% {
+    transform: rotate(-7deg);
+  }
+  94% {
+    transform: rotate(6deg);
+  }
+  97% {
+    transform: rotate(-3deg);
+  }
+}
+
+.nav-wiggle {
+  animation: nav-wiggle 5s ease-in-out infinite;
+  transform-origin: bottom left;
+}
+
+/* A recording playhead that fills under the word and resets, on a loop. */
+@keyframes nav-playhead {
+  0% {
+    transform: scaleX(0);
+  }
+  70% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+.nav-playhead {
+  transform-origin: left;
+  animation: nav-playhead 3.2s ease-in-out infinite;
+}
+
+/* An expanding radar ping ring emitted from the dot. */
+@keyframes nav-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  80%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.nav-ping {
+  animation: nav-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

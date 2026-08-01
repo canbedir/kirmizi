@@ -12,6 +12,10 @@ import {
   NavRibbon,
   NavCornerTab,
   NavPennant,
+  NavShimmer,
+  NavWiggle,
+  NavPlayhead,
+  NavPing,
 } from "@/components/landing/studio-nav-variants";
 
 export const metadata: Metadata = {
@@ -112,6 +116,23 @@ export default function StudioVariantsPage() {
         <NavRibbon />
         <NavCornerTab />
         <NavPennant />
+      </div>
+
+      <div className="mt-12 mb-8 rounded-lg border border-red/30 bg-red/10 px-4 py-3">
+        <p className="font-mono text-xs tracking-[0.15em] text-red uppercase">
+          Always-on motion — most eye-catching
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          These move on their own without a hover, so the tab pulls attention
+          the moment the page loads. Watch them for a few seconds.
+        </p>
+      </div>
+
+      <div className="grid gap-5">
+        <NavShimmer />
+        <NavWiggle />
+        <NavPlayhead />
+        <NavPing />
       </div>
     </main>
   );
