@@ -129,3 +129,78 @@ export function NavGlow() {
     />
   );
 }
+
+/* Nav 05 — the Spotlight ribbon, shrunk. A tiny diagonal red "NEW" banner
+   pinned to the top-right of the label, exactly like the teaser card. Lifts
+   slightly on hover. */
+export function NavRibbon() {
+  return (
+    <NavShell
+      caption="Nav 05 — Corner ribbon (from Teaser 02)"
+      studio={
+        <a
+          href="/studio"
+          className="group relative inline-flex cursor-pointer items-center pr-1 text-foreground"
+        >
+          Studio
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-3.5 -top-2.5 rotate-45 rounded-[2px] bg-red px-3 py-px font-mono text-[0.5rem] font-semibold leading-none tracking-[0.15em] text-red-foreground uppercase shadow-md transition-transform duration-300 group-hover:-translate-y-px"
+          >
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}
+
+/* Nav 06 — folded corner tab. The whole Studio label sits in a bordered chip
+   with a red diagonal fold cut into its top-right corner — a subtler nod to
+   the ribbon that reads as "tagged / new". */
+export function NavCornerTab() {
+  return (
+    <NavShell
+      caption="Nav 06 — Folded corner tab"
+      studio={
+        <a
+          href="/studio"
+          className="group relative inline-flex cursor-pointer items-center overflow-hidden rounded-md border border-red/30 bg-red/5 px-2.5 py-1 text-foreground transition-colors hover:border-red/60 hover:bg-red/10"
+        >
+          Studio
+          {/* diagonal fold in the corner */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute right-0 top-0 size-0 border-t-[14px] border-l-[14px] border-t-red border-l-transparent"
+          />
+        </a>
+      }
+    />
+  );
+}
+
+/* Nav 07 — floating pennant. A small angled ribbon that sits just above the
+   word like a flag on a pole, with a live pulse dot. More playful, still
+   compact. */
+export function NavPennant() {
+  return (
+    <NavShell
+      caption="Nav 07 — Floating pennant"
+      studio={
+        <a
+          href="/studio"
+          className="group relative inline-flex cursor-pointer items-center text-foreground"
+        >
+          Studio
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-2 -top-3 flex -rotate-12 items-center gap-1 rounded-sm bg-red px-1.5 py-px font-mono text-[0.5rem] font-semibold leading-none tracking-[0.12em] text-red-foreground uppercase shadow-md transition-transform duration-300 group-hover:-rotate-6 group-hover:-translate-y-px"
+          >
+            <span className="record-dot record-dot--live size-1 bg-red-foreground" />
+            New
+          </span>
+        </a>
+      }
+    />
+  );
+}

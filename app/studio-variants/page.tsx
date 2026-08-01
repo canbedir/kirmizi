@@ -9,6 +9,9 @@ import {
   NavPulse,
   NavGlow,
   NavMargin,
+  NavRibbon,
+  NavCornerTab,
+  NavPennant,
 } from "@/components/landing/studio-nav-variants";
 
 export const metadata: Metadata = {
@@ -94,6 +97,21 @@ export default function StudioVariantsPage() {
         <NavPill />
         <NavPulse />
         <NavGlow />
+      </div>
+
+      <div className="mt-12 mb-8 rounded-lg border border-red/20 bg-red/5 px-4 py-3">
+        <p className="font-mono text-xs tracking-[0.15em] text-red uppercase">
+          Ribbon-inspired
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Same corner-ribbon language as Teaser 02, scaled down for the navbar.
+        </p>
+      </div>
+
+      <div className="grid gap-5">
+        <NavRibbon />
+        <NavCornerTab />
+        <NavPennant />
       </div>
     </main>
   );
