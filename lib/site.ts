@@ -11,6 +11,7 @@ export const siteConfig = {
 export const navLinks = [
   { label: "How it works", href: "/#how-it-works" },
   { label: "Features", href: "/#features" },
+  { label: "Studio", href: "/studio" },
 ] as const;
 
 // Social / source links for the hero row. `icon` maps to a component in the
