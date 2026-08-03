@@ -50,13 +50,18 @@ export const ZOOM_MAX_SCALE = 3;
 /* Backgrounds                                                       */
 /* ---------------------------------------------------------------- */
 
+/** Either 2D context: the export may draw to an OffscreenCanvas. */
+export type SceneContext =
+  | CanvasRenderingContext2D
+  | OffscreenCanvasRenderingContext2D;
+
 export interface BackgroundPreset {
   id: string;
   label: string;
   /** CSS background value, for the editor preview and swatches. */
   css: string;
   /** Paints the same background onto the export canvas. */
-  paint: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+  paint: (ctx: SceneContext, w: number, h: number) => void;
 }
 
 interface GradientStop {

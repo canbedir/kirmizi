@@ -22,6 +22,7 @@ import type { Recording } from "@/lib/use-screen-recorder";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { SPEED_STEPS, useVideoEditor, type Segment } from "@/lib/use-video-editor";
 import { canExportVideo, exportSegments } from "@/lib/export-segments";
+import { canFastExport, fastExport } from "@/lib/fast-export";
 import { canUseFFmpeg, losslessTrim, toCompatibleMp4 } from "@/lib/lossless-trim";
 import { generateThumbnails } from "@/lib/thumbnails";
 import {
@@ -778,6 +779,39 @@ export function Editor({
 
       // Re-encode: speed/mute/scene edits, oversized recordings, or a
       // failed trim.
+      const scene = hasScene
+        ? {
+            style: frameStyle,
+            zooms: editor.zooms,
+            camera:
+              cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
+            cursor: sceneCursor,
+          }
+        : null;
+
+      // Decode the samples straight through WebCodecs where we can: every
+      // frame is rendered exactly once, it runs several times faster than the
+      // clip is long, and the audio comes out as AAC so there's no remux
+      // afterwards. Anything it can't handle falls through to the old path.
+      if (canFastExport(recording.blob, recording.mimeType)) {
+        try {
+          finish(
+            await fastExport({
+              blob: recording.blob,
+              mimeType: recording.mimeType,
+              segments: editor.segments,
+              scene,
+              cameraBlob: cameraOn && camera ? camera.blob : null,
+              onProgress: setProgress,
+            }),
+            filename,
+          );
+          return;
+        } catch {
+          setProgress(0);
+        }
+      }
+
       if (!canExportVideo()) {
         saveUrl(recording.url, fullName);
         toast.error(
@@ -790,17 +824,7 @@ export function Editor({
         editor.segments,
         recording.mimeType,
         setProgress,
-        hasScene
-          ? {
-              style: frameStyle,
-              zooms: editor.zooms,
-              camera:
-                cameraOn && camera
-                  ? { url: camera.url, layout: camLayout }
-                  : null,
-              cursor: sceneCursor,
-            }
-          : null,
+        scene,
       );
       if (isMp4 && canUseFFmpeg(blob)) blob = await toCompatibleMp4(blob, ffCbs);
       finish(blob, filename);

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Segment } from "@/lib/use-video-editor";
-import { drawSceneFrame, type Scene } from "@/lib/render-scene";
+import { drawSceneFrame, imageOfVideo, type Scene } from "@/lib/render-scene";
 import { sceneActive } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 
@@ -158,7 +158,7 @@ export async function exportSegments(
         frameW,
         frameH,
         video.currentTime,
-        camVideo,
+        imageOfVideo(camVideo),
       );
     stopTicker = startTicker(draw);
     draw();

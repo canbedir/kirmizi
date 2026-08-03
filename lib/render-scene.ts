@@ -14,6 +14,7 @@ import {
   zoomStateAt,
   type FrameStyle,
   type Rect,
+  type SceneContext,
   type ZoomRegion,
 } from "@/lib/scene";
 import type { CameraLayout } from "@/lib/camera-layout";
@@ -34,6 +35,24 @@ export interface SceneCursor {
   style: CursorStyle;
 }
 
+/**
+ * A picture to draw, with its own dimensions. The real-time exporter passes
+ * <video> elements; the frame-exact one passes decoded VideoFrames.
+ */
+export interface SceneImage {
+  image: CanvasImageSource;
+  width: number;
+  height: number;
+}
+
+/** Wrap a video element, or null if it has no frame to give yet. */
+export function imageOfVideo(
+  video: HTMLVideoElement | null | undefined,
+): SceneImage | null {
+  if (!video || video.readyState < 2 || !video.videoWidth) return null;
+  return { image: video, width: video.videoWidth, height: video.videoHeight };
+}
+
 export interface Scene {
   style: FrameStyle;
   zooms: ZoomRegion[];
@@ -43,11 +62,7 @@ export interface Scene {
   cursor?: SceneCursor | null;
 }
 
-function roundRectPath(
-  ctx: CanvasRenderingContext2D,
-  rect: Rect,
-  radius: number,
-) {
+function roundRectPath(ctx: SceneContext, rect: Rect, radius: number) {
   ctx.beginPath();
   if (radius > 0 && typeof ctx.roundRect === "function") {
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
@@ -93,7 +108,7 @@ const phase = (p: number, until: number) => Math.min(1, p / until);
  * shade a hair wider, so it stays legible against white UI.
  */
 function drawClick(
-  ctx: CanvasRenderingContext2D,
+  ctx: SceneContext,
   x: number,
   y: number,
   base: number,
@@ -160,7 +175,7 @@ function drawClick(
  * with the crop would turn a 3× push-in into a dinner plate.
  */
 export function drawCursorLayer(
-  ctx: CanvasRenderingContext2D,
+  ctx: SceneContext,
   cursor: SceneCursor,
   time: number,
   crop: Rect,
@@ -189,15 +204,15 @@ export function drawCursorLayer(
 
 /** Draw the webcam bubble (cover-cropped, clipped, mirrored, bordered). */
 function drawCameraBubble(
-  ctx: CanvasRenderingContext2D,
-  camVideo: HTMLVideoElement,
+  ctx: SceneContext,
+  cam: SceneImage,
   layout: CameraLayout,
   rect: Rect,
 ) {
   const { cx, cy, d, radius, borderW } = cameraGeometry(layout, rect);
   const half = d / 2;
-  const cw = camVideo.videoWidth || 1;
-  const ch = camVideo.videoHeight || 1;
+  const cw = cam.width || 1;
+  const ch = cam.height || 1;
   const side = Math.min(cw, ch);
   const sx = (cw - side) / 2;
   const sy = (ch - side) / 2;
@@ -221,7 +236,7 @@ function drawCameraBubble(
     ctx.translate(cx * 2, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(camVideo, sx, sy, side, side, cx - half, cy - half, d, d);
+  ctx.drawImage(cam.image, sx, sy, side, side, cx - half, cy - half, d, d);
   ctx.restore();
 
   if (borderW > 0 && layout.borderColor) {
@@ -233,18 +248,18 @@ function drawCameraBubble(
 }
 
 /**
- * Draw the scene for the current `video` frame at `time` (source seconds)
- * onto a canvas of the video's own dimensions. The webcam element (when the
- * scene has one) is drawn on top, unaffected by the zoom crop.
+ * Draw the scene for the frame at `time` (source seconds) onto a canvas of the
+ * video's own dimensions. The webcam picture (when the scene has one) is drawn
+ * on top, unaffected by the zoom crop.
  */
 export function drawSceneFrame(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
+  ctx: SceneContext,
+  video: CanvasImageSource,
   scene: Scene,
   frameW: number,
   frameH: number,
   time: number,
-  camVideo?: HTMLVideoElement | null,
+  cam?: SceneImage | null,
 ) {
   const bg = backgroundById(scene.style.background);
   const styled = bg.id !== "none";
@@ -299,7 +314,7 @@ export function drawSceneFrame(
     drawCursorLayer(ctx, scene.cursor, time, crop, rect, frameW, frameH, radius);
   }
 
-  if (scene.camera && camVideo && camVideo.readyState >= 2) {
-    drawCameraBubble(ctx, camVideo, scene.camera.layout, rect);
+  if (scene.camera && cam) {
+    drawCameraBubble(ctx, cam, scene.camera.layout, rect);
   }
 }
