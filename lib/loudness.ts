@@ -43,7 +43,7 @@ export interface LoudnessReport {
 /* K-weighting                                                       */
 /* ---------------------------------------------------------------- */
 
-interface Biquad {
+export interface Biquad {
   feedforward: number[];
   feedback: number[];
 }
@@ -57,7 +57,7 @@ interface Biquad {
  * prototype instead keeps them correct at any sample rate, and reproduces the
  * published numbers exactly at 48 kHz.
  */
-function kWeighting(rate: number): [Biquad, Biquad] {
+export function kWeighting(rate: number): [Biquad, Biquad] {
   // Stage 1: high-frequency shelf, +4 dB.
   const f0 = 1681.974450955533;
   const gain = 3.999843853973347;
@@ -101,7 +101,7 @@ const sinc = (x: number) =>
   Math.abs(x) < 1e-9 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
 
 /** One windowed-sinc kernel per sub-sample position. */
-function interpolationPhases(): Float32Array[] {
+export function interpolationPhases(): Float32Array[] {
   const phases: Float32Array[] = [];
   for (let p = 0; p < OVERSAMPLE; p++) {
     const taps = new Float32Array(TAPS);
