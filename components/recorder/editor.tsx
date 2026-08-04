@@ -57,10 +57,19 @@ import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
 import { CameraPanel } from "@/components/recorder/camera-panel";
 import { CursorPanel } from "@/components/recorder/cursor-panel";
+import { SoundPanel } from "@/components/recorder/sound-panel";
+import { useAudioAnalysis } from "@/lib/use-audio-analysis";
+import {
+  DEFAULT_SOUND_STYLE,
+  isNeutral,
+  treatmentFor,
+  type SoundStyle,
+} from "@/lib/sound";
 
 const THUMB_COUNT = 14;
 const FRAME_STYLE_KEY = "kirmizi:frame-style";
 const CURSOR_STYLE_KEY = "kirmizi:cursor-style";
+const SOUND_STYLE_KEY = "kirmizi:sound-style";
 
 function loadCursorStyle(): CursorStyle {
   if (typeof window === "undefined") return DEFAULT_CURSOR_STYLE;
@@ -71,6 +80,17 @@ function loadCursorStyle(): CursorStyle {
     /* corrupted styles fall back to the default */
   }
   return DEFAULT_CURSOR_STYLE;
+}
+
+function loadSoundStyle(): SoundStyle {
+  if (typeof window === "undefined") return DEFAULT_SOUND_STYLE;
+  try {
+    const raw = localStorage.getItem(SOUND_STYLE_KEY);
+    if (raw) return { ...DEFAULT_SOUND_STYLE, ...JSON.parse(raw) };
+  } catch {
+    /* corrupted styles fall back to the default */
+  }
+  return DEFAULT_SOUND_STYLE;
 }
 
 function loadFrameStyle(): FrameStyle {
@@ -134,6 +154,37 @@ export function Editor({
   const [cursorStyle, setCursorStyle] = useState<CursorStyle>(loadCursorStyle);
   const cursorCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  const [soundStyle, setSoundStyle] = useState<SoundStyle>(loadSoundStyle);
+  const soundState = useAudioAnalysis(recording.blob);
+  const soundTreatment = useMemo(
+    () => treatmentFor(soundStyle, soundState.analysis),
+    [soundStyle, soundState.analysis],
+  );
+
+  // The preview plays through the same level correction the export applies, so
+  // turning it on is something you hear rather than something you trust.
+  // Routing an element into Web Audio is one-way and one-time, so it happens
+  // on the first play and stays connected for the life of the editor.
+  const previewLevelRef = useRef<GainNode | null>(null);
+  const previewGainRef = useRef(1);
+  const routePreviewLevel = useCallback((ctx: AudioContext) => {
+    const video = videoRef.current;
+    if (previewLevelRef.current || !video) return;
+    try {
+      const gain = ctx.createGain();
+      gain.gain.value = previewGainRef.current;
+      ctx.createMediaElementSource(video).connect(gain).connect(ctx.destination);
+      previewLevelRef.current = gain;
+    } catch {
+      /* already routed, or not permitted — leave the element's own audio be */
+    }
+  }, []);
+  useEffect(() => {
+    previewGainRef.current = soundTreatment.gain;
+    const gain = previewLevelRef.current;
+    if (gain) gain.gain.value = soundTreatment.gain;
+  }, [soundTreatment.gain]);
+
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -179,7 +230,10 @@ export function Editor({
 
   const cameraOn = !!camera && !camHidden;
   const hasScene = sceneActive(frameStyle, zooms) || cameraOn || !!sceneCursor;
-  const edited = isEdited || hasScene;
+  // Correcting the level changes the file as surely as a cut does, so it has
+  // to count as an edit — otherwise "export" would hand back the original.
+  const soundTouched = !isNeutral(soundTreatment);
+  const edited = isEdited || hasScene || soundTouched;
 
   const setPlayingBoth = useCallback((value: boolean) => {
     playingRef.current = value;
@@ -195,6 +249,15 @@ export function Editor({
     setFrameStyle(style);
     try {
       localStorage.setItem(FRAME_STYLE_KEY, JSON.stringify(style));
+    } catch {
+      /* persistence is best-effort */
+    }
+  }
+
+  function applySoundStyle(style: SoundStyle) {
+    setSoundStyle(style);
+    try {
+      localStorage.setItem(SOUND_STYLE_KEY, JSON.stringify(style));
     } catch {
       /* persistence is best-effort */
     }
@@ -300,11 +363,15 @@ export function Editor({
         voice: createClickVoice(ctx, ctx.destination),
       };
     }
-    clickAudioRef.current?.ctx.resume().catch(() => {});
+    const audioCtx = clickAudioRef.current?.ctx;
+    if (audioCtx) {
+      audioCtx.resume().catch(() => {});
+      routePreviewLevel(audioCtx);
+    }
     lastHeardRef.current = t;
     setPlayingBoth(true);
     video.play().catch(() => setPlayingBoth(false));
-  }, [editor.segments, playhead, setPlayingBoth]);
+  }, [editor.segments, playhead, setPlayingBoth, routePreviewLevel]);
 
   const pause = useCallback(() => {
     videoRef.current?.pause();
@@ -409,6 +476,7 @@ export function Editor({
     ctx: AudioContext;
     voice: ClickVoice;
   } | null>(null);
+
   const soundRef = useRef<{ clicks: number[]; enabled: boolean }>({
     clicks: [],
     enabled: false,
@@ -715,7 +783,9 @@ export function Editor({
     // Pure cut/trim (no speed, mute, or scene) can be stream-copied
     // losslessly; edits with effects still need a re-encode.
     const cutOnly =
-      editor.segments.every((s) => s.speed === 1 && !s.muted) && !hasScene;
+      editor.segments.every((s) => s.speed === 1 && !s.muted) &&
+      !hasScene &&
+      !soundTouched;
     const filename = downloadName(recording.mimeType, edited);
     const fullName = downloadName(recording.mimeType, false);
 
@@ -802,6 +872,7 @@ export function Editor({
               segments: editor.segments,
               scene,
               cameraBlob: cameraOn && camera ? camera.blob : null,
+              sound: soundTreatment,
               onProgress: setProgress,
             }),
             filename,
@@ -825,6 +896,7 @@ export function Editor({
         recording.mimeType,
         setProgress,
         scene,
+        soundTreatment,
       );
       if (isMp4 && canUseFFmpeg(blob)) blob = await toCompatibleMp4(blob, ffCbs);
       finish(blob, filename);
@@ -1168,6 +1240,12 @@ export function Editor({
           )}
 
           <FramePanel style={frameStyle} onChange={applyFrameStyle} />
+
+          <SoundPanel
+            style={soundStyle}
+            state={soundState}
+            onChange={applySoundStyle}
+          />
 
           {cursorTrack && (
             <CursorPanel

@@ -23,6 +23,7 @@ import {
 import { createClickVoice } from "@/lib/click-sound";
 import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/mp4-demux";
 import { createFrameReader } from "@/lib/frame-reader";
+import { RUMBLE_HZ, decodeRecordingAudio, type SoundTreatment } from "@/lib/sound";
 
 /**
  * Frames are emitted one per source frame, at the source's own timing, rather
@@ -48,6 +49,8 @@ export interface FastExportInput {
   scene?: Scene | null;
   /** The webcam recording, when the scene composites one. */
   cameraBlob?: Blob | null;
+  /** Level correction and filtering, measured beforehand. */
+  sound?: SoundTreatment | null;
   onProgress?: (fraction: number) => void;
 }
 
@@ -199,6 +202,7 @@ async function renderAudio(
   total: number,
   scene: Scene | null | undefined,
   hasSourceAudio: boolean,
+  sound: SoundTreatment | null | undefined,
 ): Promise<AudioBuffer | null> {
   const cursor = scene?.cursor;
   const clicks =
@@ -208,10 +212,8 @@ async function renderAudio(
 
   let decoded: AudioBuffer | null = null;
   if (hasSourceAudio) {
-    // Decoding on an offline context avoids opening a real output device, and
-    // pins the sample rate so the result is the same on every machine.
-    const probe = new OfflineAudioContext(1, 1, AUDIO_RATE);
-    decoded = await probe.decodeAudioData(await blob.arrayBuffer());
+    decoded = await decodeRecordingAudio(blob);
+    if (!decoded) throw new Error("Couldn't read the recording's audio.");
   }
 
   const channels = Math.min(2, Math.max(1, decoded?.numberOfChannels ?? 2));
@@ -222,6 +224,23 @@ async function renderAudio(
   );
 
   if (decoded) {
+    // Level and filtering apply to what was recorded, not to the clicks we
+    // add — those are already at a chosen level.
+    let bus: AudioNode = ctx.destination;
+    if (sound?.rumble) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "highpass";
+      filter.frequency.value = RUMBLE_HZ;
+      filter.connect(bus);
+      bus = filter;
+    }
+    if (sound && Math.abs(sound.gain - 1) > 1e-4) {
+      const level = ctx.createGain();
+      level.gain.value = sound.gain;
+      level.connect(bus);
+      bus = level;
+    }
+
     for (const segment of placed) {
       const length = segment.end - segment.start;
       if (length <= 0) continue;
@@ -230,7 +249,7 @@ async function renderAudio(
       source.playbackRate.value = segment.speed;
       const gain = ctx.createGain();
       gain.gain.value = segment.muted ? 0 : 1;
-      source.connect(gain).connect(ctx.destination);
+      source.connect(gain).connect(bus);
       // Stop by output time rather than passing a duration: that way the cut
       // lands in the same place whatever the speed.
       source.start(segment.outStart, segment.start);
@@ -324,9 +343,8 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
     total,
     scene,
     source.hasAudio,
-  ).catch(() => {
-    throw new Error("Couldn't read the recording's audio.");
-  });
+    input.sound,
+  );
 
   const { config: encoderConfig, muxCodec } = await pickVideoEncoder(
     width,

@@ -4,6 +4,7 @@ import type { Segment } from "@/lib/use-video-editor";
 import { drawSceneFrame, imageOfVideo, type Scene } from "@/lib/render-scene";
 import { sceneActive } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
+import { RUMBLE_HZ, type SoundTreatment } from "@/lib/sound";
 
 type CaptureableVideo = HTMLVideoElement & {
   captureStream?: () => MediaStream;
@@ -106,6 +107,7 @@ export async function exportSegments(
   mimeType: string,
   onProgress?: (fraction: number) => void,
   scene?: Scene | null,
+  sound?: SoundTreatment | null,
 ): Promise<Blob> {
   const video = document.createElement("video") as CaptureableVideo;
   video.src = url;
@@ -179,7 +181,23 @@ export async function exportSegments(
   const gain = audioCtx.createGain();
   const dest = audioCtx.createMediaStreamDestination();
   sourceNode.connect(gain);
-  gain.connect(dest);
+  // Level correction and the rumble filter sit between the recording and the
+  // mix, so the clicks added below stay at the level they were designed at.
+  let bus: AudioNode = gain;
+  if (sound?.rumble) {
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = RUMBLE_HZ;
+    bus.connect(filter);
+    bus = filter;
+  }
+  if (sound && Math.abs(sound.gain - 1) > 1e-4) {
+    const level = audioCtx.createGain();
+    level.gain.value = sound.gain;
+    bus.connect(level);
+    bus = level;
+  }
+  bus.connect(dest);
 
   const exportStream = new MediaStream([
     ...videoStream.getVideoTracks(),
