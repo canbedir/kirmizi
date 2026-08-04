@@ -68,6 +68,11 @@ export interface VideoEditor {
   canUndo: boolean;
   canRedo: boolean;
   init: (duration: number) => void;
+  /**
+   * Put back a timeline saved earlier. Starts a fresh history — there's
+   * nothing before a reopened edit to undo to.
+   */
+  restore: (segments: Segment[], zooms: ZoomRegion[]) => void;
   select: (id: string | null) => void;
   selectZoom: (id: string | null) => void;
   /** Split the segment under `time` into two at `time`. */
@@ -145,6 +150,13 @@ export function useVideoEditor(): VideoEditor {
       },
       future: [],
     });
+    setSelectedId(null);
+    setSelectedZoomId(null);
+  }, []);
+
+  const restore = useCallback((segments: Segment[], zooms: ZoomRegion[]) => {
+    if (!segments.length) return;
+    setHistory({ past: [], present: { segments, zooms }, future: [] });
     setSelectedId(null);
     setSelectedZoomId(null);
   }, []);
@@ -493,6 +505,7 @@ export function useVideoEditor(): VideoEditor {
     remove,
     setMuted,
     setSpeed,
+    restore,
     cutRanges,
     updateSegment,
     addZoom,

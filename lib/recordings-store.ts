@@ -8,9 +8,11 @@ import type { CameraLayout } from "@/lib/camera-layout";
 import type { CursorTrack } from "@/lib/cursor-track";
 
 const DB_NAME = "kirmizi";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const META = "meta";
 const BLOBS = "blobs";
+/** Edit state, keyed by recording id — see lib/edit-state.ts. */
+const EDITS = "edits";
 const MAX_ITEMS = 5;
 
 // The webcam track (when present) lives in BLOBS under a derived key.
@@ -59,6 +61,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(BLOBS)) {
         db.createObjectStore(BLOBS, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(EDITS)) {
+        db.createObjectStore(EDITS, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -109,8 +114,11 @@ export async function getRecordingBlob(id: string): Promise<Blob | null> {
   }
 }
 
-export async function saveRecording(rec: NewRecording): Promise<void> {
-  if (!hasIDB()) return;
+/** Saves a recording and returns the id it was filed under, if it was. */
+export async function saveRecording(
+  rec: NewRecording,
+): Promise<string | null> {
+  if (!hasIDB()) return null;
   try {
     const db = await openDB();
     const id =
@@ -142,17 +150,54 @@ export async function saveRecording(rec: NewRecording): Promise<void> {
     all.sort((a, b) => b.createdAt - a.createdAt);
     const stale = all.slice(MAX_ITEMS);
     if (stale.length) {
-      const pruneTx = db.transaction([META, BLOBS], "readwrite");
+      const pruneTx = db.transaction([META, BLOBS, EDITS], "readwrite");
       for (const m of stale) {
         pruneTx.objectStore(META).delete(m.id);
         pruneTx.objectStore(BLOBS).delete(m.id);
         pruneTx.objectStore(BLOBS).delete(camKey(m.id));
+        pruneTx.objectStore(EDITS).delete(m.id);
       }
       await txDone(pruneTx);
     }
     db.close();
+    return id;
   } catch {
     /* history is best-effort */
+    return null;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Edits                                                             */
+/* ---------------------------------------------------------------- */
+
+/** Store the edit state for a recording, replacing whatever was there. */
+export async function saveEdits(id: string, edits: unknown): Promise<void> {
+  if (!hasIDB() || !id) return;
+  try {
+    const db = await openDB();
+    const tx = db.transaction(EDITS, "readwrite");
+    tx.objectStore(EDITS).put({ id, edits });
+    await txDone(tx);
+    db.close();
+  } catch {
+    /* an unsaved edit is a smaller loss than a broken editor */
+  }
+}
+
+/** The stored edit state for a recording, if it has any. */
+export async function getEdits(id: string): Promise<unknown | null> {
+  if (!hasIDB() || !id) return null;
+  try {
+    const db = await openDB();
+    const store = db.transaction(EDITS, "readonly").objectStore(EDITS);
+    const row = (await request(store.get(id))) as
+      | { id: string; edits: unknown }
+      | undefined;
+    db.close();
+    return row?.edits ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -160,10 +205,11 @@ export async function deleteRecording(id: string): Promise<void> {
   if (!hasIDB()) return;
   try {
     const db = await openDB();
-    const tx = db.transaction([META, BLOBS], "readwrite");
+    const tx = db.transaction([META, BLOBS, EDITS], "readwrite");
     tx.objectStore(META).delete(id);
     tx.objectStore(BLOBS).delete(id);
     tx.objectStore(BLOBS).delete(camKey(id));
+    tx.objectStore(EDITS).delete(id);
     await txDone(tx);
     db.close();
   } catch {

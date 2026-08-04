@@ -65,6 +65,13 @@ import { CursorPanel } from "@/components/recorder/cursor-panel";
 import { SoundPanel } from "@/components/recorder/sound-panel";
 import { PacePanel } from "@/components/recorder/pace-panel";
 import { findDeadAir } from "@/lib/dead-air";
+import { getEdits, saveEdits } from "@/lib/recordings-store";
+import {
+  isUntouched,
+  packEdits,
+  readEdits,
+  type EditSnapshot,
+} from "@/lib/edit-state";
 import { useAudioAnalysis } from "@/lib/use-audio-analysis";
 import {
   DEFAULT_SOUND_STYLE,
@@ -139,9 +146,12 @@ function sliderValue(value: number | readonly number[]): number {
 
 export function Editor({
   recording,
+  editKey,
   onReset,
 }: {
   recording: Recording;
+  /** Which stored recording this work belongs to, once it has been filed. */
+  editKey?: string | null;
   onReset: () => void;
 }) {
   const editor = useVideoEditor();
@@ -150,6 +160,9 @@ export function Editor({
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const measuredRef = useRef(false);
+  // Whether the auto-zoom pass has put its regions in — set without running it
+  // when a stored edit brings its own.
+  const autoAppliedRef = useRef(false);
 
   const camera = recording.camera ?? null;
   const [camLayout, setCamLayout] = useState<CameraLayout>(
@@ -242,6 +255,53 @@ export function Editor({
   const soundTouched = !isNeutral(soundTreatment);
   const edited = isEdited || hasScene || soundTouched;
 
+  /* ---- picking up where the last visit left off ------------------------ */
+
+  // Until a stored edit has been looked for, nothing is written back and the
+  // auto-zoom pass is held: both would otherwise race what's being restored.
+  const [restored, setRestored] = useState<"pending" | "none" | "done">(
+    "pending",
+  );
+  useEffect(() => {
+    if (!editKey || duration <= 0 || restored !== "pending") return;
+    let live = true;
+    getEdits(editKey)
+      .then((stored) => {
+        if (!live) return;
+        const snapshot = readEdits(stored, duration);
+        if (!snapshot) {
+          setRestored("none");
+          return;
+        }
+        editor.restore(snapshot.segments, snapshot.zooms);
+        setFrameStyle(snapshot.frame);
+        setCursorStyle(snapshot.cursor);
+        setSoundStyle(snapshot.sound);
+        if (snapshot.camera) {
+          setCamLayout(snapshot.camera.layout);
+          setCamHidden(snapshot.camera.hidden);
+        }
+        // Zooms came back with the rest; regenerating them would undo any
+        // that were removed by hand.
+        autoAppliedRef.current = true;
+        setRestored("done");
+        toast("Picked up where you left off", {
+          description: "Your cuts and settings are as you left them.",
+        });
+      })
+      .catch(() => {
+        if (live) setRestored("none");
+      });
+    return () => {
+      live = false;
+    };
+    // editor.restore is stable; re-running on style changes would fight them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editKey, duration, restored]);
+
+  // With no key there's nothing to look for, so nothing is held up.
+  const settled = !editKey || restored !== "pending";
+
   // What could still come out: recomputed against the kept timeline, so a
   // stretch already cut is never proposed a second time.
   const deadAir = useMemo(
@@ -255,6 +315,38 @@ export function Editor({
       }),
     [duration, segments, soundState.analysis, cursorTrack],
   );
+
+  // Write the work back, a beat after it stops changing. Everything the
+  // editor holds goes in one record, so reopening restores the whole state
+  // rather than a subset of it.
+  const snapshot: EditSnapshot = useMemo(
+    () => ({
+      duration,
+      segments,
+      zooms,
+      frame: frameStyle,
+      cursor: cursorStyle,
+      sound: soundStyle,
+      camera: camera ? { layout: camLayout, hidden: camHidden } : null,
+    }),
+    [duration, segments, zooms, frameStyle, cursorStyle, soundStyle, camera, camLayout, camHidden],
+  );
+  useEffect(() => {
+    if (!editKey || !settled || duration <= 0) return;
+    // An untouched clip has nothing worth remembering; storing it would also
+    // freeze today's defaults onto a recording opened months from now.
+    if (isUntouched(snapshot, {
+      frame: DEFAULT_FRAME_STYLE,
+      cursor: DEFAULT_CURSOR_STYLE,
+      sound: DEFAULT_SOUND_STYLE,
+    })) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void saveEdits(editKey, packEdits(snapshot));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [editKey, settled, duration, snapshot]);
 
   const setPlayingBoth = useCallback((value: boolean) => {
     playingRef.current = value;
@@ -464,10 +556,10 @@ export function Editor({
     zoomsRef.current = zooms;
   });
   // Auto zoom runs on its own as soon as the clip is measured, and undoes
-  // itself when switched off — no button to discover.
-  const autoAppliedRef = useRef(false);
+  // itself when switched off — no button to discover. It waits for any stored
+  // edit first, which may already carry the zooms it would have proposed.
   useEffect(() => {
-    if (!cursorTrack || duration <= 0) return;
+    if (!cursorTrack || duration <= 0 || !settled) return;
     if (cursorStyle.autoZoom && !autoAppliedRef.current) {
       autoAppliedRef.current = true;
       const manual = zoomsRef.current.filter((z) => !z.auto);
@@ -479,7 +571,7 @@ export function Editor({
     // editor.setAutoZooms is stable; zooms are read through a ref on purpose
     // so regenerating doesn't chase its own output.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursorTrack, duration, cursorStyle.autoZoom]);
+  }, [cursorTrack, duration, cursorStyle.autoZoom, settled]);
 
   // Geometry + cursor layer for the preview overlay, read by the rAF loop.
   const overlayRef = useRef<{

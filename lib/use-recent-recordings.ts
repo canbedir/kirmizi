@@ -23,10 +23,18 @@ export function useRecentRecordings() {
   }, [refresh]);
 
   const save = useCallback(
-    (rec: NewRecording) => {
+    // Resolves with the id it was filed under, which is what edits are keyed
+    // on, or null if it couldn't be stored.
+    async (rec: NewRecording): Promise<string | null> => {
       // Best-effort: a huge recording can blow the storage quota — the user
       // still has the in-memory recording either way.
-      saveRecording(rec).then(refresh).catch(() => {});
+      try {
+        const id = await saveRecording(rec);
+        refresh();
+        return id;
+      } catch {
+        return null;
+      }
     },
     [refresh],
   );

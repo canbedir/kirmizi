@@ -43,6 +43,14 @@ export function RecorderShell() {
   const [settings, patchSettings] = useRecorderSettings();
   const { items: recents, save, remove } = useRecentRecordings();
   const [viewing, setViewing] = useState<Recording | null>(null);
+  // Which stored recording the editor's work belongs to: the one just made,
+  // or the one reopened from history. Held against the recording it describes,
+  // so a new take doesn't inherit the last one's id for a render.
+  const [filed, setFiled] = useState<{
+    recording: Recording;
+    id: string | null;
+  } | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
   // Whether the desktop spans more than one screen — read from the platform
   // rather than mirrored into state, and re-read if the layout changes.
   const extended = useSyncExternalStore(
@@ -82,9 +90,9 @@ export function RecorderShell() {
   useEffect(() => {
     if (!recording) return;
     let cancelled = false;
-    captureCover(recording.url).then((cover) => {
+    captureCover(recording.url).then(async (cover) => {
       if (cancelled) return;
-      save({
+      const id = await save({
         blob: recording.blob,
         mimeType: recording.mimeType,
         size: recording.size,
@@ -99,6 +107,9 @@ export function RecorderShell() {
           : null,
         cursor: recording.cursor ?? null,
       });
+      // The id the edits will be filed under; it arrives a moment after the
+      // editor opens, which is fine — a new recording has none to load.
+      if (!cancelled) setFiled({ recording, id });
     });
     return () => {
       cancelled = true;
@@ -113,6 +124,7 @@ export function RecorderShell() {
       const camBlob = meta?.cameraMimeType
         ? await getRecordingCameraBlob(id)
         : null;
+      setViewingId(id);
       setViewing({
         url: URL.createObjectURL(blob),
         blob,
@@ -134,6 +146,7 @@ export function RecorderShell() {
   );
 
   const closeViewing = useCallback(() => {
+    setViewingId(null);
     setViewing((current) => {
       if (current) {
         URL.revokeObjectURL(current.url);
@@ -241,7 +254,7 @@ export function RecorderShell() {
         {blocked ? (
           <Unsupported support={support} />
         ) : viewing ? (
-          <Editor recording={viewing} onReset={closeViewing} />
+          <Editor recording={viewing} editKey={viewingId} onReset={closeViewing} />
         ) : status === "error" ? (
           <div className="flex max-w-md flex-col items-center gap-6 text-center">
             <span className="grid size-16 place-items-center rounded-full border border-red/30 bg-red/10 text-red">
@@ -281,7 +294,11 @@ export function RecorderShell() {
           />
 
         ) : status === "stopped" && recording ? (
-          <Editor recording={recording} onReset={reset} />
+          <Editor
+            recording={recording}
+            editKey={filed?.recording === recording ? filed.id : null}
+            onReset={reset}
+          />
         ) : (
           <div className="flex w-full flex-col items-center gap-8">
             <IdleControls
