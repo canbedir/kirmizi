@@ -8,7 +8,12 @@
 // neither should be left to the eye and a volume slider — the level is
 // measured (see lib/loudness.ts) and corrected by exactly the difference.
 
-import { measureLoudness, normalisation, type LoudnessReport } from "@/lib/loudness";
+import {
+  normalisation,
+  scanLoudness,
+  type LoudnessReport,
+  type MomentaryLevel,
+} from "@/lib/loudness";
 
 export interface SoundStyle {
   /** Bring the clip to a standard loudness. */
@@ -44,6 +49,8 @@ export async function decodeRecordingAudio(
 
 export interface SoundAnalysis {
   report: LoudnessReport;
+  /** Level over time — small enough to keep, and what finds the pauses. */
+  profile: MomentaryLevel[];
   /** Linear gain that puts this recording on target. */
   gain: number;
   /** Where it lands after that gain, LUFS. */
@@ -56,10 +63,10 @@ export interface SoundAnalysis {
 export async function analyseSound(blob: Blob): Promise<SoundAnalysis | null> {
   const buffer = await decodeRecordingAudio(blob);
   if (!buffer) return null;
-  const report = await measureLoudness(buffer);
+  const { report, profile } = await scanLoudness(buffer);
   if (!isFinite(report.integrated)) return null;
   const { gain, reached, peakLimited } = normalisation(report);
-  return { report, gain, reached, peakLimited };
+  return { report, profile, gain, reached, peakLimited };
 }
 
 /** What the export paths need to apply: one gain, and whether to filter. */

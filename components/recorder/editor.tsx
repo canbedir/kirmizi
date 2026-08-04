@@ -58,6 +58,8 @@ import { FramePanel } from "@/components/recorder/frame-panel";
 import { CameraPanel } from "@/components/recorder/camera-panel";
 import { CursorPanel } from "@/components/recorder/cursor-panel";
 import { SoundPanel } from "@/components/recorder/sound-panel";
+import { PacePanel } from "@/components/recorder/pace-panel";
+import { findDeadAir } from "@/lib/dead-air";
 import { useAudioAnalysis } from "@/lib/use-audio-analysis";
 import {
   DEFAULT_SOUND_STYLE,
@@ -234,6 +236,20 @@ export function Editor({
   // to count as an edit — otherwise "export" would hand back the original.
   const soundTouched = !isNeutral(soundTreatment);
   const edited = isEdited || hasScene || soundTouched;
+
+  // What could still come out: recomputed against the kept timeline, so a
+  // stretch already cut is never proposed a second time.
+  const deadAir = useMemo(
+    () =>
+      findDeadAir({
+        duration,
+        segments,
+        profile: soundState.analysis?.profile,
+        integrated: soundState.analysis?.report.integrated,
+        track: cursorTrack,
+      }),
+    [duration, segments, soundState.analysis, cursorTrack],
+  );
 
   const setPlayingBoth = useCallback((value: boolean) => {
     playingRef.current = value;
@@ -1246,6 +1262,20 @@ export function Editor({
             state={soundState}
             onChange={applySoundStyle}
           />
+
+          {(cursorTrack || soundState.status !== "silent") && (
+            <PacePanel
+              report={deadAir}
+              measuring={soundState.status === "measuring"}
+              onTighten={() => {
+                pause();
+                editor.cutRanges(deadAir.ranges);
+                toast.success("Tightened", {
+                  description: `Cut ${formatDuration(deadAir.removed * 1000)} of dead air — Ctrl+Z puts it back.`,
+                });
+              }}
+            />
+          )}
 
           {cursorTrack && (
             <CursorPanel

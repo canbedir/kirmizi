@@ -182,10 +182,32 @@ async function kWeight(buffer: AudioBuffer): Promise<AudioBuffer> {
   return ctx.startRendering();
 }
 
+/** How loud one 400 ms window was — what the standard calls "momentary". */
+export interface MomentaryLevel {
+  /** Centre of the window, seconds. */
+  t: number;
+  lufs: number;
+}
+
+export interface LoudnessScan {
+  report: LoudnessReport;
+  /** Level over time, for finding the pauses. */
+  profile: MomentaryLevel[];
+}
+
 /** Integrated loudness and peak levels for a whole buffer. */
 export async function measureLoudness(
   buffer: AudioBuffer,
 ): Promise<LoudnessReport> {
+  return (await scanLoudness(buffer)).report;
+}
+
+/**
+ * The same measurement, keeping the level of every window on the way through.
+ * One pass of the filters serves both: the single number that says how loud
+ * the clip is, and the shape that says when it wasn't saying anything.
+ */
+export async function scanLoudness(buffer: AudioBuffer): Promise<LoudnessScan> {
   const rate = buffer.sampleRate;
   const channels: Float32Array[] = [];
   let samplePeak = 0;
@@ -198,11 +220,14 @@ export async function measureLoudness(
     }
   }
 
-  const silent: LoudnessReport = {
-    integrated: -Infinity,
-    truePeak: -Infinity,
-    samplePeak: -Infinity,
-    gatedSeconds: 0,
+  const silent: LoudnessScan = {
+    report: {
+      integrated: -Infinity,
+      truePeak: -Infinity,
+      samplePeak: -Infinity,
+      gatedSeconds: 0,
+    },
+    profile: [],
   };
   if (!channels.length || !buffer.length) return silent;
 
@@ -219,6 +244,8 @@ export async function measureLoudness(
   // Mean square per channel, for every overlapping block.
   const blocks: Float32Array[] = [];
   const levels: number[] = [];
+  const profile: MomentaryLevel[] = [];
+  const half = BLOCK_SECONDS / 2;
   for (let start = 0; start + blockLength <= buffer.length; start += step) {
     const means = new Float32Array(filtered.length);
     let weightedSum = 0;
@@ -230,8 +257,11 @@ export async function measureLoudness(
       means[c] = mean;
       weightedSum += (CHANNEL_WEIGHTS[c] ?? 1) * mean;
     }
+    const level = weightedSum > 0 ? OFFSET + 10 * Math.log10(weightedSum) : -Infinity;
     blocks.push(means);
-    levels.push(weightedSum > 0 ? OFFSET + 10 * Math.log10(weightedSum) : -Infinity);
+    levels.push(level);
+    // Stamped at the middle of the window, which is the moment it describes.
+    profile.push({ t: start / rate + half, lufs: level });
   }
   if (!blocks.length) return silent;
 
@@ -252,19 +282,22 @@ export async function measureLoudness(
   for (let i = 0; i < levels.length; i++) {
     if (levels[i] >= ABSOLUTE_GATE) loud.push(i);
   }
-  if (!loud.length) return silent;
+  if (!loud.length) return { ...silent, profile };
 
   // Second gate: drop anything far below the clip's own average, so that
   // pauses between sentences don't pull the measurement down.
   const relative = loudnessOf(loud) + RELATIVE_GATE;
   const kept = loud.filter((i) => levels[i] >= relative);
-  if (!kept.length) return silent;
+  if (!kept.length) return { ...silent, profile };
 
   return {
-    integrated: loudnessOf(kept),
-    truePeak: toDb(truePeakOf(channels, samplePeak)),
-    samplePeak: toDb(samplePeak),
-    gatedSeconds: kept.length * STEP_SECONDS,
+    report: {
+      integrated: loudnessOf(kept),
+      truePeak: toDb(truePeakOf(channels, samplePeak)),
+      samplePeak: toDb(samplePeak),
+      gatedSeconds: kept.length * STEP_SECONDS,
+    },
+    profile,
   };
 }
 

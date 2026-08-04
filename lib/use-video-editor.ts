@@ -74,6 +74,12 @@ export interface VideoEditor {
   split: (time: number) => void;
   /** Remove a segment (no-op if it's the last remaining one). */
   remove: (id: string) => void;
+  /**
+   * Cut several source ranges out of the timeline as one undoable step. Auto
+   * zoom regions left mostly inside a cut go with it — a push-in onto
+   * something that's no longer there is just a lurch.
+   */
+  cutRanges: (ranges: { start: number; end: number }[]) => void;
   setMuted: (id: string, muted: boolean) => void;
   setSpeed: (id: string, speed: number) => void;
   /**
@@ -190,6 +196,50 @@ export function useVideoEditor(): VideoEditor {
           : { ...prev, segments: prev.segments.filter((s) => s.id !== id) },
       );
       setSelectedId((cur) => (cur === id ? null : cur));
+    },
+    [apply],
+  );
+
+  const cutRanges = useCallback(
+    (ranges: { start: number; end: number }[]) => {
+      if (!ranges.length) return;
+      apply((prev) => {
+        let segments = prev.segments;
+        for (const range of ranges) {
+          const next: Segment[] = [];
+          for (const s of segments) {
+            if (range.end <= s.start + EPS || range.start >= s.end - EPS) {
+              next.push(s);
+              continue;
+            }
+            // What's left either side of the cut. A piece too short to be
+            // worth keeping is dropped, which is how a range covering a whole
+            // segment removes it.
+            if (range.start - s.start >= SEGMENT_MIN_LENGTH) {
+              next.push({ ...s, id: uid(), end: range.start });
+            }
+            if (s.end - range.end >= SEGMENT_MIN_LENGTH) {
+              next.push({ ...s, id: uid(), start: range.end });
+            }
+          }
+          segments = next;
+        }
+        // Never cut the clip away entirely.
+        if (!segments.length) return prev;
+
+        const covered = (z: ZoomRegion) =>
+          ranges.reduce(
+            (sum, r) =>
+              sum + Math.max(0, Math.min(z.end, r.end) - Math.max(z.start, r.start)),
+            0,
+          );
+        const zooms = prev.zooms.filter(
+          (z) => !z.auto || covered(z) < (z.end - z.start) / 2,
+        );
+
+        return { segments: segments.sort((a, b) => a.start - b.start), zooms };
+      });
+      setSelectedId(null);
     },
     [apply],
   );
@@ -443,6 +493,7 @@ export function useVideoEditor(): VideoEditor {
     remove,
     setMuted,
     setSpeed,
+    cutRanges,
     updateSegment,
     addZoom,
     addZooms,
