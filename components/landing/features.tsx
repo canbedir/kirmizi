@@ -1,6 +1,14 @@
 "use client";
 
-import { FileVideo, Focus, Mic, Scissors, ShieldCheck, Zap } from "lucide-react";
+import {
+  AudioLines,
+  FileVideo,
+  Focus,
+  Mic,
+  Scissors,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Reveal } from "@/components/landing/reveal";
@@ -33,12 +41,17 @@ const features: Feature[] = [
   {
     icon: Scissors,
     title: "In-browser editor",
-    body: "Multi-cut timeline with mute, speed, zoom, and undo.",
+    body: "Multi-cut timeline with mute, speed, zoom and undo — and it's still there when you come back.",
   },
   {
     icon: Focus,
     title: "Studio-style finish",
-    body: "Animated zooms, styled frames, and a webcam bubble you can restyle after recording.",
+    body: "Zooms placed from your clicks, styled frames, and vertical or square exports.",
+  },
+  {
+    icon: AudioLines,
+    title: "A measured sound level",
+    body: "Loudness read the way broadcasters read it, and corrected by exactly the difference.",
   },
   {
     icon: FileVideo,

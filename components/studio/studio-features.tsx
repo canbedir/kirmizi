@@ -1,8 +1,12 @@
 "use client";
 
 import {
+  AudioLines,
+  Crop,
   Focus,
   Frame,
+  Gauge,
+  History,
   MousePointerClick,
   Scissors,
   UserRound,
@@ -32,9 +36,19 @@ const items: Item[] = [
     body: "A halo, an impact, and a ring that expands and thins — landing exactly where the pointer did, on light interfaces and dark.",
   },
   {
-    icon: Volume2,
-    title: "Clicks you can hear",
-    body: "An optional click, synthesised rather than sampled, mixed in on the video's own clock.",
+    icon: AudioLines,
+    title: "A level you don't have to judge",
+    body: "The clip is measured the way broadcasters measure it and moved onto -16 LUFS by exactly the difference — and held back if reaching it would clip.",
+  },
+  {
+    icon: Scissors,
+    title: "Dead air, taken out",
+    body: "Stretches that are both quiet and motionless are found and offered up. One press, and Ctrl+Z if you disagree.",
+  },
+  {
+    icon: Crop,
+    title: "Vertical and square exports",
+    body: "A wide capture keeps its proportions inside a taller frame, with the background filling the room around it.",
   },
   {
     icon: Frame,
@@ -47,9 +61,19 @@ const items: Item[] = [
     body: "The webcam records as its own track, so the bubble's position, shape and border stay editable after the take.",
   },
   {
-    icon: Scissors,
-    title: "Still a real editor",
-    body: "Drag either edge to trim, split, mute or change the speed of any segment — and undo all of it.",
+    icon: Volume2,
+    title: "Clicks you can hear",
+    body: "An optional click, synthesised rather than sampled, mixed in on the video's own clock.",
+  },
+  {
+    icon: History,
+    title: "Come back to it later",
+    body: "Cuts, zooms, the frame and the sound settings are kept beside the recording, so closing the tab isn't losing the work.",
+  },
+  {
+    icon: Gauge,
+    title: "Exports faster than it plays",
+    body: "Frames are decoded and re-encoded rather than recorded off playback, so a ten-minute clip doesn't take ten minutes — and every frame is accounted for.",
   },
 ];
 

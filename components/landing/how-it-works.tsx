@@ -15,7 +15,7 @@ const steps = [
   },
   {
     title: "Polish & download",
-    body: "Cut it down, add a zoom or a styled frame, and download the file — straight from your machine, no upload.",
+    body: "Cut the dead air, let it place the zooms and set the level, pick a shape — then download the file, straight from your machine.",
   },
 ];
 
