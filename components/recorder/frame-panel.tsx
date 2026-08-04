@@ -2,7 +2,7 @@
 
 import { Ban } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { BACKGROUNDS, type FrameStyle } from "@/lib/scene";
+import { ASPECTS, BACKGROUNDS, aspectById, type FrameStyle } from "@/lib/scene";
 import { Slider } from "@/components/ui/slider";
 
 // Styling controls for the frame drawn around the recording: background
@@ -52,6 +52,24 @@ function LabeledSlider({
   );
 }
 
+/** A little outline of the shape the export will be. */
+function AspectMark({ ratio }: { ratio: number | null }) {
+  // The source keeps whatever was captured, so it has no fixed shape to draw.
+  if (ratio === null) {
+    return (
+      <span className="block size-3 rounded-xs border border-current border-dashed" />
+    );
+  }
+  const w = ratio >= 1 ? 14 : 14 * ratio;
+  const h = ratio >= 1 ? 14 / ratio : 14;
+  return (
+    <span
+      className="block rounded-xs border border-current"
+      style={{ width: w, height: h }}
+    />
+  );
+}
+
 export function FramePanel({
   style,
   onChange,
@@ -60,6 +78,7 @@ export function FramePanel({
   onChange: (style: FrameStyle) => void;
 }) {
   const plain = style.background === "none";
+  const aspect = aspectById(style.aspect);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
@@ -93,6 +112,38 @@ export function FramePanel({
             </button>
           );
         })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          Shape
+        </span>
+        {ASPECTS.map((preset) => {
+          const active = style.aspect === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              aria-label={`Shape: ${preset.label}`}
+              aria-pressed={active}
+              onClick={() => onChange({ ...style, aspect: preset.id })}
+              className={cn(
+                "flex h-7 items-center gap-1.5 rounded-md border px-2 font-mono text-[11px] transition-colors",
+                active
+                  ? "border-red text-red"
+                  : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+              )}
+            >
+              <AspectMark ratio={preset.ratio} />
+              {preset.label}
+            </button>
+          );
+        })}
+        {aspect.ratio !== null && plain && (
+          <span className="font-mono text-[11px] text-muted-foreground/80">
+            pick a background to fill the room around it
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:gap-5">

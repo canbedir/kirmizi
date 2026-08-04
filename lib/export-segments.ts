@@ -1,8 +1,13 @@
 "use client";
 
 import type { Segment } from "@/lib/use-video-editor";
-import { drawSceneFrame, imageOfVideo, type Scene } from "@/lib/render-scene";
-import { sceneActive } from "@/lib/scene";
+import {
+  drawSceneFrame,
+  imageOfVideo,
+  type FrameSize,
+  type Scene,
+} from "@/lib/render-scene";
+import { outputSize, sceneActive } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 import { RUMBLE_HZ, type SoundTreatment } from "@/lib/sound";
 
@@ -145,8 +150,14 @@ export async function exportSegments(
       });
       if (!loaded) camVideo = null;
     }
-    const frameW = video.videoWidth || 1280;
-    const frameH = video.videoHeight || 720;
+    const sourceW = video.videoWidth || 1280;
+    const sourceH = video.videoHeight || 720;
+    const { w: frameW, h: frameH } = outputSize(
+      sourceW,
+      sourceH,
+      scene.style.aspect,
+    );
+    const size: FrameSize = { w: frameW, h: frameH, sourceW, sourceH };
     const canvas = document.createElement("canvas");
     canvas.width = frameW;
     canvas.height = frameH;
@@ -157,8 +168,7 @@ export async function exportSegments(
         ctx,
         video,
         scene,
-        frameW,
-        frameH,
+        size,
         video.currentTime,
         imageOfVideo(camVideo),
       );

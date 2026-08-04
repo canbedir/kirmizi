@@ -17,9 +17,11 @@
 import type { Segment } from "@/lib/use-video-editor";
 import {
   drawSceneFrame,
+  type FrameSize,
   type Scene,
   type SceneImage,
 } from "@/lib/render-scene";
+import { outputSize } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/mp4-demux";
 import { createFrameReader } from "@/lib/frame-reader";
@@ -323,8 +325,14 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
   const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
 
   const source: DemuxedVideo = await demuxVideo(blob);
-  const { width, height } = source;
-  if (!width || !height) throw new Error("The recording has no frame size.");
+  const sourceW = source.width;
+  const sourceH = source.height;
+  if (!sourceW || !sourceH) throw new Error("The recording has no frame size.");
+  // The exported frame may be a different shape from the capture.
+  const { w: width, h: height } = scene
+    ? outputSize(sourceW, sourceH, scene.style.aspect)
+    : { w: sourceW, h: sourceH };
+  const size: FrameSize = { w: width, h: height, sourceW, sourceH };
 
   const fps = Math.min(120, Math.max(5, Math.round(source.fps) || 30));
   const { placed, total } = place(segments);
@@ -432,7 +440,7 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
             };
           }
         }
-        drawSceneFrame(ctx, frame, scene, width, height, shot.source, cam);
+        drawSceneFrame(ctx, frame, scene, size, shot.source, cam);
       } else {
         ctx.drawImage(frame, 0, 0, width, height);
       }

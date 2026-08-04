@@ -32,6 +32,7 @@ import {
   cameraGeometry,
   cropRect,
   cssZoomTransform,
+  outputSize,
   radiusPx,
   sceneActive,
   videoRect,
@@ -48,7 +49,11 @@ import {
   hasCursorData,
   type CursorStyle,
 } from "@/lib/cursor-track";
-import { drawCursorLayer, type SceneCursor } from "@/lib/render-scene";
+import {
+  drawCursorLayer,
+  type FrameSize,
+  type SceneCursor,
+} from "@/lib/render-scene";
 import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -482,9 +487,14 @@ export function Editor({
     w: number;
     h: number;
     radius: number;
-    frameW: number;
-    frameH: number;
-  }>({ cursor: null, w: 0, h: 0, radius: 0, frameW: 0, frameH: 0 });
+    size: FrameSize;
+  }>({
+    cursor: null,
+    w: 0,
+    h: 0,
+    radius: 0,
+    size: { w: 0, h: 0, sourceW: 0, sourceH: 0 },
+  });
 
   // Click sounds during preview playback. The context is created on the
   // first play (a user gesture by then) and reused after that.
@@ -559,17 +569,16 @@ export function Editor({
         const ctx = overlay.getContext("2d");
         if (ctx) {
           ctx.clearRect(0, 0, w, h);
-          if (geo.cursor && geo.frameW > 0) {
+          if (geo.cursor && geo.size.sourceW > 0) {
             const state = zoomStateAt(zoomsRef.current, video.currentTime);
-            const crop = cropRect(state, geo.frameW, geo.frameH);
+            const crop = cropRect(state, geo.size.sourceW, geo.size.sourceH);
             drawCursorLayer(
               ctx,
               geo.cursor,
               video.currentTime,
               crop,
               { x: 0, y: 0, w, h },
-              geo.frameW,
-              geo.frameH,
+              geo.size,
               geo.radius,
             );
           }
@@ -610,9 +619,17 @@ export function Editor({
 
   const styled = frameStyle.background !== "none" && dims.w > 0 && dims.h > 0;
   const bg = backgroundById(frameStyle.background);
-  const stagePs = dims.w > 0 && containerWidth > 0 ? containerWidth / dims.w : 0;
-  const stageRect = styled
-    ? videoRect(dims.w, dims.h, frameStyle.padding)
+  // The stage is the exported frame, which isn't always the capture's shape.
+  const frame = useMemo(
+    () => outputSize(dims.w, dims.h, frameStyle.aspect),
+    [dims.w, dims.h, frameStyle.aspect],
+  );
+  const reframed = dims.w > 0 && (frame.w !== dims.w || frame.h !== dims.h);
+  // Anything but the raw capture at its own shape gets the laid-out stage.
+  const framed = styled || reframed;
+  const stagePs = frame.w > 0 && containerWidth > 0 ? containerWidth / frame.w : 0;
+  const stageRect = framed
+    ? videoRect(frame.w, frame.h, styled ? frameStyle.padding : 0, dims.w, dims.h)
     : { x: 0, y: 0, w: dims.w, h: dims.h };
 
   // The overlay canvas is backed at source resolution and scaled down by CSS,
@@ -623,8 +640,7 @@ export function Editor({
       w: stageRect.w,
       h: stageRect.h,
       radius: styled ? radiusPx(frameStyle, stageRect) : 0,
-      frameW: dims.w,
-      frameH: dims.h,
+      size: { w: frame.w, h: frame.h, sourceW: dims.w, sourceH: dims.h },
     };
   });
 
@@ -941,10 +957,10 @@ export function Editor({
           ref={stageRef}
           className="relative w-full overflow-hidden rounded-xl border border-border bg-black shadow-[0_30px_90px_-40px_rgba(0,0,0,0.6)]"
           style={
-            styled
+            framed
               ? {
-                  aspectRatio: `${dims.w} / ${dims.h}`,
-                  background: bg.css,
+                  aspectRatio: `${frame.w} / ${frame.h}`,
+                  background: styled ? bg.css : "#000",
                 }
               : undefined
           }
@@ -952,10 +968,10 @@ export function Editor({
           <div
             className={cn(
               "overflow-hidden",
-              styled ? "absolute bg-black" : "relative w-full",
+              framed ? "absolute bg-black" : "relative w-full",
             )}
             style={
-              styled
+              framed
                 ? {
                     left: stageRect.x * stagePs,
                     top: stageRect.y * stagePs,

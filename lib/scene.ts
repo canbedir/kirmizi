@@ -17,6 +17,8 @@ export interface FrameStyle {
   radius: number;
   /** Drop-shadow strength, 0–1. */
   shadow: number;
+  /** Shape of the exported frame (see ASPECTS); "source" keeps the capture's. */
+  aspect: string;
 }
 
 export const DEFAULT_FRAME_STYLE: FrameStyle = {
@@ -24,7 +26,57 @@ export const DEFAULT_FRAME_STYLE: FrameStyle = {
   padding: 0.06,
   radius: 0.03,
   shadow: 0.5,
+  aspect: "source",
 };
+
+/* ---------------------------------------------------------------- */
+/* Output shape                                                      */
+/* ---------------------------------------------------------------- */
+
+export interface AspectPreset {
+  id: string;
+  label: string;
+  /** Width over height, or null to keep whatever was captured. */
+  ratio: number | null;
+}
+
+export const ASPECTS: AspectPreset[] = [
+  { id: "source", label: "Source", ratio: null },
+  { id: "16:9", label: "16:9", ratio: 16 / 9 },
+  { id: "1:1", label: "1:1", ratio: 1 },
+  { id: "4:5", label: "4:5", ratio: 4 / 5 },
+  { id: "9:16", label: "9:16", ratio: 9 / 16 },
+];
+
+export function aspectById(id: string): AspectPreset {
+  return ASPECTS.find((a) => a.id === id) ?? ASPECTS[0];
+}
+
+/** H.264 in 4:2:0 can't encode an odd width or height. */
+const even = (value: number) => Math.max(2, Math.round(value / 2) * 2);
+
+/**
+ * The size of the exported frame.
+ *
+ * The long edge is kept from the capture, so a 1920×1080 screen becomes the
+ * 1080×1920 that vertical video is actually uploaded at. The recording itself
+ * is then fitted inside (see videoRect) and the background fills the rest —
+ * which is the whole point of a taller frame: room around the picture.
+ */
+export function outputSize(
+  sourceW: number,
+  sourceH: number,
+  aspect: string,
+): { w: number; h: number } {
+  const { ratio } = aspectById(aspect);
+  if (!ratio || sourceW <= 0 || sourceH <= 0) {
+    return { w: even(sourceW), h: even(sourceH) };
+  }
+  const long = Math.max(sourceW, sourceH);
+  return ratio >= 1
+    ? { w: even(long), h: even(long / ratio) }
+    : { w: even(long * ratio), h: even(long) };
+}
 
 /** A timed zoom-in on a focal point, with eased ramps at both ends. */
 export interface ZoomRegion {
@@ -155,7 +207,7 @@ export function backgroundById(id: string): BackgroundPreset {
 }
 
 export function isDefaultFrame(style: FrameStyle): boolean {
-  return style.background === "none";
+  return style.background === "none" && style.aspect === "source";
 }
 
 /** Whether the scene changes any pixels (and so forces a re-encode). */
@@ -180,20 +232,24 @@ const clamp = (v: number, min: number, max: number) =>
 /**
  * Where the video sits inside the frame: inset on every side by an even
  * pixel margin (a fraction of the shorter edge), contain-fitted, centred.
- * With padding 0 the video fills the frame exactly.
+ *
+ * `sourceW`/`sourceH` are the recording's own shape, which is only different
+ * from the frame's when the export has been reframed — a wide capture in a
+ * vertical frame keeps its proportions and sits in the middle of it.
  */
 export function videoRect(
   frameW: number,
   frameH: number,
   padding: number,
+  sourceW = frameW,
+  sourceH = frameH,
 ): Rect {
-  if (padding <= 0) return { x: 0, y: 0, w: frameW, h: frameH };
   const margin = clamp(padding, 0, 0.35) * Math.min(frameW, frameH);
   const availW = frameW - margin * 2;
   const availH = frameH - margin * 2;
-  const scale = Math.min(availW / frameW, availH / frameH);
-  const w = frameW * scale;
-  const h = frameH * scale;
+  const scale = Math.min(availW / sourceW, availH / sourceH);
+  const w = sourceW * scale;
+  const h = sourceH * scale;
   return { x: (frameW - w) / 2, y: (frameH - h) / 2, w, h };
 }
 

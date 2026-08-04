@@ -45,6 +45,24 @@ export interface SceneImage {
   height: number;
 }
 
+/**
+ * The frame being drawn, and the recording it's drawn from. The two are the
+ * same size until the export is reframed — a 16:9 capture in a 9:16 frame.
+ */
+export interface FrameSize {
+  /** The canvas being painted. */
+  w: number;
+  h: number;
+  /** The recording's own dimensions, which cursor and zoom maths are in. */
+  sourceW: number;
+  sourceH: number;
+}
+
+/** A frame the same shape as what was captured. */
+export function sameSize(w: number, h: number): FrameSize {
+  return { w, h, sourceW: w, sourceH: h };
+}
+
 /** Wrap a video element, or null if it has no frame to give yet. */
 export function imageOfVideo(
   video: HTMLVideoElement | null | undefined,
@@ -180,8 +198,7 @@ export function drawCursorLayer(
   time: number,
   crop: Rect,
   rect: Rect,
-  frameW: number,
-  frameH: number,
+  size: FrameSize,
   radius = 0,
 ) {
   const { track, style } = cursor;
@@ -194,9 +211,11 @@ export function drawCursorLayer(
   roundRectPath(ctx, rect, radius);
   ctx.clip();
 
-  const base = style.size * frameH;
+  // Sized against the frame rather than the video, so it reads the same
+  // whatever the picture has been padded or reframed to.
+  const base = style.size * size.h;
   for (const effect of effects) {
-    const p = mapPoint(effect.x, effect.y, crop, rect, frameW, frameH);
+    const p = mapPoint(effect.x, effect.y, crop, rect, size.sourceW, size.sourceH);
     drawClick(ctx, p.x, p.y, base, effect.progress, effect.secondary);
   }
   ctx.restore();
@@ -256,16 +275,17 @@ export function drawSceneFrame(
   ctx: SceneContext,
   video: CanvasImageSource,
   scene: Scene,
-  frameW: number,
-  frameH: number,
+  size: FrameSize,
   time: number,
   cam?: SceneImage | null,
 ) {
+  const { w: frameW, h: frameH, sourceW, sourceH } = size;
   const bg = backgroundById(scene.style.background);
   const styled = bg.id !== "none";
 
-  // Background. With the "none" preset the video covers the whole frame, but
-  // paint black anyway so ramp frames never show garbage.
+  // Background. With the "none" preset and the capture's own shape the video
+  // covers the whole frame, but paint black anyway so nothing shows through
+  // at the edges of a reframed export.
   if (styled) {
     bg.paint(ctx, frameW, frameH);
   } else {
@@ -273,9 +293,15 @@ export function drawSceneFrame(
     ctx.fillRect(0, 0, frameW, frameH);
   }
 
-  const rect = styled
-    ? videoRect(frameW, frameH, scene.style.padding)
-    : { x: 0, y: 0, w: frameW, h: frameH };
+  // Padding only applies to a styled frame, but the contain-fit always does:
+  // that's what puts a wide capture in the middle of a vertical export.
+  const rect = videoRect(
+    frameW,
+    frameH,
+    styled ? scene.style.padding : 0,
+    sourceW,
+    sourceH,
+  );
   const radius = styled ? radiusPx(scene.style, rect) : 0;
 
   // Shadow, drawn as a filled plate underneath the video.
@@ -292,7 +318,7 @@ export function drawSceneFrame(
   }
 
   const zoom = zoomStateAt(scene.zooms, time);
-  const crop = cropRect(zoom, frameW, frameH);
+  const crop = cropRect(zoom, sourceW, sourceH);
 
   ctx.save();
   roundRectPath(ctx, rect, radius);
@@ -311,7 +337,7 @@ export function drawSceneFrame(
   ctx.restore();
 
   if (scene.cursor) {
-    drawCursorLayer(ctx, scene.cursor, time, crop, rect, frameW, frameH, radius);
+    drawCursorLayer(ctx, scene.cursor, time, crop, rect, size, radius);
   }
 
   if (scene.camera && cam) {
