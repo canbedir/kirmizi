@@ -9,9 +9,20 @@
 
 import type { Track as Mp4Track } from "mp4box";
 
-/** The same ceiling ffmpeg.wasm gets: past this we'd be holding the whole
- *  recording and its re-encode in memory at once. */
-const MAX_INPUT_BYTES = 800 * 1024 * 1024;
+/**
+ * How much of the recording is in memory at once while demuxing, and how many
+ * samples come back per callback. Together they keep the parser's own
+ * footprint flat instead of growing with the file.
+ */
+const READ_CHUNK = 8 * 1024 * 1024;
+const SAMPLE_BATCH = 500;
+
+/**
+ * The encoded samples are held as chunks — about the size of the recording —
+ * and the re-encode accumulates alongside them, so there's still a limit; it's
+ * just no longer three copies of the file.
+ */
+const MAX_INPUT_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface DemuxedVideo {
   chunks: EncodedVideoChunk[];
@@ -97,50 +108,57 @@ export async function demuxVideo(blob: Blob): Promise<DemuxedVideo> {
   let track: Mp4Track | undefined;
   let description: Uint8Array | undefined;
   let hasAudio = false;
+  let failure: Error | null = null;
 
-  await new Promise<void>((resolve, reject) => {
-    file.onError = (e: unknown) => reject(new Error(`Couldn't read the mp4: ${e}`));
-    file.onReady = (info) => {
-      hasAudio = (info.audioTracks?.length ?? 0) > 0;
-      track = info.videoTracks?.[0];
-      if (!track) {
-        reject(new Error("The recording has no video track."));
-        return;
-      }
-      description = descriptionOf(
-        file as unknown as { getTrackById: (id: number) => unknown },
-        track.id,
-        DataStream,
+  file.onError = (e: unknown) => {
+    failure ??= new Error(`Couldn't read the mp4: ${e}`);
+  };
+  file.onReady = (info) => {
+    hasAudio = (info.audioTracks?.length ?? 0) > 0;
+    track = info.videoTracks?.[0];
+    if (!track) {
+      failure ??= new Error("The recording has no video track.");
+      return;
+    }
+    description = descriptionOf(
+      file as unknown as { getTrackById: (id: number) => unknown },
+      track.id,
+      DataStream,
+    );
+    // Small batches, so samples come back often enough to hand their memory
+    // back as we go rather than at the end.
+    file.setExtractionOptions(track.id, null, { nbSamples: SAMPLE_BATCH });
+    file.start();
+  };
+  file.onSamples = (id, _user, samples) => {
+    for (const s of samples) {
+      chunks.push(
+        new EncodedVideoChunk({
+          type: s.is_sync ? "key" : "delta",
+          timestamp: (s.cts / s.timescale) * 1e6,
+          duration: (s.duration / s.timescale) * 1e6,
+          data: s.data as unknown as BufferSource,
+        }),
       );
-      // nb_samples is the whole track; asking for all of them in one go keeps
-      // the callback count down.
-      file.setExtractionOptions(track.id, null, { nbSamples: track.nb_samples });
-      file.start();
-    };
-    file.onSamples = (_id, _user, samples) => {
-      for (const s of samples) {
-        chunks.push(
-          new EncodedVideoChunk({
-            type: s.is_sync ? "key" : "delta",
-            timestamp: (s.cts / s.timescale) * 1e6,
-            duration: (s.duration / s.timescale) * 1e6,
-            data: s.data as unknown as BufferSource,
-          }),
-        );
-      }
-    };
+    }
+    // The chunk now owns a copy of every sample here, so mp4box can drop its
+    // own. Without this it keeps the whole file alongside ours.
+    const last = samples[samples.length - 1];
+    if (last) file.releaseUsedSamples(id, last.number);
+  };
 
-    blob
-      .arrayBuffer()
-      .then((buffer) => {
-        // mp4box wants to know where in the file this buffer starts.
-        (buffer as ArrayBuffer & { fileStart: number }).fileStart = 0;
-        file.appendBuffer(buffer as never);
-        file.flush();
-        resolve();
-      })
-      .catch(reject);
-  });
+  // Fed a slice at a time: handing over one buffer the size of the recording
+  // means holding the whole thing while mp4box holds its own copy of it.
+  for (let offset = 0; offset < blob.size; ) {
+    const slice = await blob.slice(offset, offset + READ_CHUNK).arrayBuffer();
+    if (!slice.byteLength) break;
+    (slice as ArrayBuffer & { fileStart: number }).fileStart = offset;
+    file.appendBuffer(slice as never);
+    offset += slice.byteLength;
+    if (failure) throw failure;
+  }
+  file.flush();
+  if (failure) throw failure;
 
   if (!track) throw new Error("The recording has no video track.");
   if (!chunks.length) throw new Error("The recording has no readable frames.");
