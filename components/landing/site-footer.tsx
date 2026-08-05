@@ -9,8 +9,11 @@ export function SiteFooter() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-8 px-6 py-12 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
         <div className="flex flex-col items-center gap-3 sm:items-start">
           <Wordmark />
+          {/* The name spelled without its diacritics too — that's how it gets
+              typed into a search box, and it appears nowhere else on the site. */}
           <p className="max-w-xs text-sm text-muted-foreground">
-            Record your screen. Nothing leaves your browser.
+            {siteConfig.name} ({siteConfig.nameAscii}) is a screen recorder that
+            runs in your browser. Nothing leaves your machine.
           </p>
         </div>
 

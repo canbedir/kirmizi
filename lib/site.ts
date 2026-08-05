@@ -1,5 +1,7 @@
 export const siteConfig = {
   name: "Kırmızı",
+  /** Without the diacritics, which is how people type it into a search box. */
+  nameAscii: "Kirmizi",
   url: "https://kirmizi.app",
   tagline: "Record your screen. Nothing leaves your browser.",
   description:
