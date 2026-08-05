@@ -50,7 +50,8 @@ What a submission needs:
 
 1. **A developer account** — one-time $5 registration at the
    [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
-2. **A zip of this folder's contents** (the files, not the folder itself).
+2. **A zip of this folder's contents** (the files, not the folder itself), with
+   `manifest.json` at its root.
 3. **Listing assets** — the 128px icon is in `icons/`; add at least one
    1280×800 screenshot showing the editor's cursor panel and auto zoom.
 4. **A privacy policy URL** — <https://kirmizi.app/privacy>, which covers the
@@ -71,6 +72,18 @@ What a submission needs:
 Expect a few days for review; broad host permissions can push it longer. The
 app degrades gracefully in the meantime — every feature except cursor
 tracking and auto zoom works without the extension.
+
+### Versioning
+
+`version` counts *published* releases, not commits. Fixes land here without
+touching it, and it goes up by one when a package is actually submitted — so
+the number in the manifest is the number in the store, and there is only one
+sequence to reason about.
+
+It got out of step once: four fixes each bumped it, and the store went
+straight from 1.0.0 to a 1.0.4 nobody had ever seen. Since the store only
+requires the new version to be *greater* than the published one, it was
+renumbered back to 1.0.1 before shipping.
 
 ## How the pieces fit
 
