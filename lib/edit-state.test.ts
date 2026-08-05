@@ -6,7 +6,7 @@ import {
   type EditSnapshot,
 } from "@/lib/edit-state";
 import { DEFAULT_CURSOR_STYLE } from "@/lib/cursor-track";
-import { DEFAULT_FRAME_STYLE } from "@/lib/scene";
+import { DEFAULT_FRAME_STYLE, FULL_CROP } from "@/lib/scene";
 import { DEFAULT_SOUND_STYLE } from "@/lib/sound";
 
 const D = 12;
@@ -16,6 +16,7 @@ const snapshot = (extra: Partial<EditSnapshot> = {}): EditSnapshot => ({
   segments: [{ id: "a", start: 0, end: D, muted: false, speed: 1 }],
   zooms: [],
   frame: DEFAULT_FRAME_STYLE,
+  crop: FULL_CROP,
   cursor: DEFAULT_CURSOR_STYLE,
   sound: DEFAULT_SOUND_STYLE,
   camera: null,
@@ -198,5 +199,36 @@ describe("what isn't worth remembering", () => {
       zooms: [{ id: "z", start: 1, end: 3, x: 0.5, y: 0.5, scale: 2 }],
     });
     expect(isUntouched(manual, DEFAULTS)).toBe(false);
+  });
+});
+
+describe("the crop travels too", () => {
+  const half = { x: 0.25, y: 0.1, w: 0.5, h: 0.6 };
+
+  test("comes back as it went in", () => {
+    const after = readEdits(packEdits(snapshot({ crop: half })), D);
+    expect(after!.crop.x).toBeCloseTo(half.x, 6);
+    expect(after!.crop.w).toBeCloseTo(half.w, 6);
+    expect(after!.crop.h).toBeCloseTo(half.h, 6);
+  });
+
+  test("an edit saved before crops existed keeps the whole screen", () => {
+    const stored = packEdits(snapshot()) as unknown as Record<string, unknown>;
+    delete stored.crop;
+    expect(readEdits(stored, D)!.crop).toEqual(FULL_CROP);
+  });
+
+  test("a nonsense crop is not trusted", () => {
+    const stored = packEdits(snapshot()) as unknown as Record<string, unknown>;
+    stored.crop = { x: -5, y: "no", w: 99, h: null };
+    const crop = readEdits(stored, D)!.crop;
+    expect(crop.x).toBeGreaterThanOrEqual(0);
+    expect(crop.x + crop.w).toBeLessThanOrEqual(1 + 1e-9);
+    expect(crop.y + crop.h).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  test("and a crop counts as work worth remembering", () => {
+    expect(isUntouched(snapshot({ crop: half }), DEFAULTS)).toBe(false);
+    expect(isUntouched(snapshot({ crop: FULL_CROP }), DEFAULTS)).toBe(true);
   });
 });

@@ -1,11 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import {
   ASPECTS,
+  CROP_MIN,
   DEFAULT_FRAME_STYLE,
+  FULL_CROP,
   ZOOM_MAX_SCALE,
   aspectById,
+  clampCrop,
+  cropPixels,
   cropRect,
+  cssZoomTransform,
+  fitCrop,
+  frameSizeFor,
   isDefaultFrame,
+  isFullCrop,
   outputSize,
   radiusPx,
   sceneActive,
@@ -229,5 +237,209 @@ describe("what counts as an edit", () => {
 
   test("and so does a single zoom", () => {
     expect(sceneActive(DEFAULT_FRAME_STYLE, [zoom()])).toBe(true);
+  });
+});
+
+describe("crop", () => {
+  const half = { x: 0.5, y: 0, w: 0.5, h: 1 };
+
+  test("no crop leaves the capture alone", () => {
+    expect(isFullCrop(null)).toBe(true);
+    expect(isFullCrop(FULL_CROP)).toBe(true);
+    expect(isFullCrop(half)).toBe(false);
+    expect(cropPixels(null, 1920, 1080)).toEqual({ x: 0, y: 0, w: 1920, h: 1080 });
+  });
+
+  test("is kept inside the capture and never smaller than the minimum", () => {
+    expect(clampCrop({ x: -1, y: -1, w: 2, h: 2 })).toEqual(FULL_CROP);
+    const tiny = clampCrop({ x: 0.5, y: 0.5, w: 0.001, h: 0.001 });
+    expect(tiny.w).toBeCloseTo(CROP_MIN, 6);
+    expect(tiny.h).toBeCloseTo(CROP_MIN, 6);
+    const pushed = clampCrop({ x: 0.9, y: 0.9, w: 0.4, h: 0.4 });
+    expect(pushed.x + pushed.w).toBeLessThanOrEqual(1 + 1e-9);
+    expect(pushed.y + pushed.h).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  test("at rest the shot is exactly the crop", () => {
+    const flat = zoomStateAt([], 0);
+    expect(cropRect(flat, 1920, 1080, half)).toEqual({ x: 960, y: 0, w: 960, h: 1080 });
+  });
+
+  test("a zoom works inside the crop, not the capture", () => {
+    const state = zoomStateAt([zoom({ x: 0.75, y: 0.5, scale: 2 })], 4);
+    const shot = cropRect(state, 1920, 1080, half);
+    // Half the crop's width, not half the capture's.
+    expect(shot.w).toBeCloseTo(480, 6);
+    expect(shot.h).toBeCloseTo(540, 6);
+    expect(shot.x).toBeGreaterThanOrEqual(960);
+    expect(shot.x + shot.w).toBeLessThanOrEqual(1920);
+  });
+
+  test("a focal point outside the crop is held at its edge", () => {
+    // Aimed at the far left, but the crop keeps only the right half.
+    const state = zoomStateAt([zoom({ x: 0.05, y: 0.5, scale: 2 })], 4);
+    const shot = cropRect(state, 1920, 1080, half);
+    expect(shot.x).toBeCloseTo(960, 6);
+    expect(shot.x + shot.w).toBeLessThanOrEqual(1920 + 1e-6);
+  });
+
+  test("the shot never leaves the crop, at any scale or aim", () => {
+    for (const c of [half, { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, FULL_CROP]) {
+      for (const [x, y] of [[0, 0], [1, 1], [0.5, 0.5], [-1, 2]]) {
+        for (const scale of [1, 1.5, ZOOM_MAX_SCALE]) {
+          const shot = cropRect(zoomStateAt([zoom({ x, y, scale })], 4), 1920, 1080, c);
+          const b = cropPixels(c, 1920, 1080);
+          expect(shot.x).toBeGreaterThanOrEqual(b.x - 1e-6);
+          expect(shot.y).toBeGreaterThanOrEqual(b.y - 1e-6);
+          expect(shot.x + shot.w).toBeLessThanOrEqual(b.x + b.w + 1e-6);
+          expect(shot.y + shot.h).toBeLessThanOrEqual(b.y + b.h + 1e-6);
+        }
+      }
+    }
+  });
+
+  test("the shot keeps the crop's shape, so nothing is stretched", () => {
+    for (const c of [half, { x: 0.2, y: 0.1, w: 0.5, h: 0.3 }]) {
+      const shot = cropRect(zoomStateAt([zoom({ scale: 2 })], 4), 1920, 1080, c);
+      const b = cropPixels(c, 1920, 1080);
+      expect(shot.w / shot.h).toBeCloseTo(b.w / b.h, 6);
+    }
+  });
+
+  test("with no crop it is exactly what it always was", () => {
+    for (const scale of [1, 1.4, 2.6]) {
+      const state = zoomStateAt([zoom({ x: 0.3, y: 0.7, scale })], 4);
+      expect(cropRect(state, 1920, 1080, null)).toEqual(
+        cropRect(state, 1920, 1080, FULL_CROP),
+      );
+    }
+  });
+});
+
+describe("cssZoomTransform", () => {
+  test("is nothing at rest, whatever the crop", () => {
+    expect(cssZoomTransform(zoomStateAt([], 0), 1920, 1080)).toBe("");
+    expect(
+      cssZoomTransform(zoomStateAt([], 0), 1920, 1080, { x: 0.5, y: 0, w: 0.5, h: 1 }),
+    ).toBe("");
+  });
+
+  test("is expressed against the crop, so the framing can be laid out once", () => {
+    const crop = { x: 0.5, y: 0, w: 0.5, h: 1 };
+    const state = zoomStateAt([zoom({ x: 0.75, y: 0.5, scale: 2 })], 4);
+    // Aimed at the middle of the right half: the shot sits in the middle of
+    // the crop, so the offset is a quarter of it either way.
+    expect(cssZoomTransform(state, 1920, 1080, crop)).toBe(
+      "scale(2.0000) translate(-25.0000%, -25.0000%)",
+    );
+  });
+
+  test("matches the uncropped form when there's no crop", () => {
+    const state = zoomStateAt([zoom({ x: 0.4, y: 0.6, scale: 1.8 })], 4);
+    expect(cssZoomTransform(state, 1280, 720)).toBe(
+      cssZoomTransform(state, 1280, 720, FULL_CROP),
+    );
+  });
+});
+
+describe("frameSizeFor", () => {
+  test("with no crop it is the capture's own size", () => {
+    expect(frameSizeFor(1920, 1080, null, "source")).toEqual({ w: 1920, h: 1080 });
+  });
+
+  test("cropping in is the same as making the picture bigger", () => {
+    // Keep the left half of a 1080p screen: the file comes out 960x1080, so
+    // what was half the width now fills the frame at its own resolution.
+    expect(frameSizeFor(1920, 1080, { x: 0, y: 0, w: 0.5, h: 1 }, "source")).toEqual({
+      w: 960,
+      h: 1080,
+    });
+  });
+
+  test("a chosen shape still wins, measured off the crop", () => {
+    expect(frameSizeFor(1920, 1080, { x: 0, y: 0, w: 0.5, h: 1 }, "9:16")).toEqual({
+      w: 608,
+      h: 1080,
+    });
+  });
+
+  test("every crop and shape gives an encodable frame", () => {
+    for (const crop of [FULL_CROP, { x: 0.1, y: 0.1, w: 0.37, h: 0.53 }, { x: 0, y: 0, w: 1, h: 0.4 }]) {
+      for (const preset of ASPECTS) {
+        const size = frameSizeFor(1920, 1080, crop, preset.id);
+        expect(size.w % 2).toBe(0);
+        expect(size.h % 2).toBe(0);
+        expect(size.w).toBeGreaterThan(0);
+        expect(size.h).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("what counts as an edit, with a crop", () => {
+  test("a crop is an edit even when nothing else changed", () => {
+    expect(sceneActive(DEFAULT_FRAME_STYLE, [], FULL_CROP)).toBe(false);
+    expect(sceneActive(DEFAULT_FRAME_STYLE, [], null)).toBe(false);
+    expect(sceneActive(DEFAULT_FRAME_STYLE, [], { x: 0.1, y: 0, w: 0.8, h: 1 })).toBe(
+      true,
+    );
+  });
+});
+
+describe("fitCrop", () => {
+  test("no shape means no crop", () => {
+    expect(fitCrop(1920, 1080, null)).toEqual(FULL_CROP);
+  });
+
+  test("a vertical shape takes a slice out of a wide screen", () => {
+    // Rather than stranding the whole desktop in a strip down the middle.
+    const crop = fitCrop(1920, 1080, 9 / 16);
+    expect(crop.h).toBeCloseTo(1, 6);
+    expect(crop.w).toBeCloseTo((9 / 16) / (16 / 9), 6);
+    expect(crop.x).toBeCloseTo((1 - crop.w) / 2, 6);
+  });
+
+  test("a square one too", () => {
+    const crop = fitCrop(1920, 1080, 1);
+    expect(crop.h).toBeCloseTo(1, 6);
+    expect(crop.w).toBeCloseTo(1080 / 1920, 6);
+  });
+
+  test("asking for the shape you already have changes nothing", () => {
+    expect(fitCrop(1920, 1080, 16 / 9)).toEqual(FULL_CROP);
+  });
+
+  test("a shape wider than the capture takes a band across it", () => {
+    const crop = fitCrop(1080, 1920, 16 / 9);
+    expect(crop.w).toBeCloseTo(1, 6);
+    expect(crop.h).toBeCloseTo((1080 / 1920) / (16 / 9), 6);
+    expect(crop.y).toBeCloseTo((1 - crop.h) / 2, 6);
+  });
+
+  test("what it produces always fits, and is the shape it was asked for", () => {
+    for (const [w, h] of [[1920, 1080], [1280, 720], [1080, 1920], [1600, 1200]]) {
+      for (const preset of ASPECTS) {
+        const crop = fitCrop(w, h, preset.ratio);
+        expect(crop).toEqual(clampCrop(crop));
+        if (preset.ratio) {
+          const kept = cropPixels(crop, w, h);
+          expect(kept.w / kept.h).toBeCloseTo(preset.ratio, 5);
+        }
+      }
+    }
+  });
+
+  test("and a shape asked for after it needs no letterbox", () => {
+    const crop = fitCrop(1920, 1080, 9 / 16);
+    const size = frameSizeFor(1920, 1080, crop, "9:16");
+    const kept = cropPixels(crop, 1920, 1080);
+    // The picture fills the frame: same shape, so there's nothing to pad out
+    // at the sides. What's left is the half-pixel of rounding an odd width to
+    // something an encoder will take, not a letterbox.
+    const rect = videoRect(size.w, size.h, 0, kept.w, kept.h);
+    expect(rect.x).toBeLessThan(1);
+    expect(rect.y).toBeLessThan(1);
+    expect(size.w - rect.w).toBeLessThan(1);
+    expect(size.h - rect.h).toBeLessThan(1);
   });
 });

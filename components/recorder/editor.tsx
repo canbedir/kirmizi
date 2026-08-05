@@ -32,11 +32,16 @@ import {
   cameraGeometry,
   cropRect,
   cssZoomTransform,
-  outputSize,
+  FULL_CROP,
+  clampCrop,
+  cropPixels,
+  frameSizeFor,
+  isFullCrop,
   radiusPx,
   sceneActive,
   videoRect,
   zoomStateAt,
+  type CropRegion,
   type FrameStyle,
 } from "@/lib/scene";
 import {
@@ -60,6 +65,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
+import { CropOverlay } from "@/components/recorder/crop-overlay";
 import { CameraPanel } from "@/components/recorder/camera-panel";
 import { CursorPanel } from "@/components/recorder/cursor-panel";
 import { SoundPanel } from "@/components/recorder/sound-panel";
@@ -159,6 +165,7 @@ export function Editor({
   const camRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const zoomLayerRef = useRef<HTMLDivElement>(null);
   const measuredRef = useRef(false);
   // Whether the auto-zoom pass has put its regions in — set without running it
   // when a stored edit brings its own.
@@ -213,6 +220,13 @@ export function Editor({
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [dims, setDims] = useState({ w: 0, h: 0 });
   const [frameStyle, setFrameStyle] = useState<FrameStyle>(loadFrameStyle);
+  // What of the capture is being exported. Per recording, not a preference —
+  // a crop means nothing to the next take.
+  const [crop, setCrop] = useState<CropRegion>(FULL_CROP);
+  // While choosing it, the stage shows the whole capture instead of the crop;
+  // you can't aim a rectangle at something you can no longer see.
+  const [cropping, setCropping] = useState(false);
+  const shownCrop = cropping ? FULL_CROP : crop;
   const [exporting, setExporting] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -249,7 +263,7 @@ export function Editor({
   );
 
   const cameraOn = !!camera && !camHidden;
-  const hasScene = sceneActive(frameStyle, zooms) || cameraOn || !!sceneCursor;
+  const hasScene = sceneActive(frameStyle, zooms, crop) || cameraOn || !!sceneCursor;
   // Correcting the level changes the file as surely as a cut does, so it has
   // to count as an edit — otherwise "export" would hand back the original.
   const soundTouched = !isNeutral(soundTreatment);
@@ -275,6 +289,7 @@ export function Editor({
         }
         editor.restore(snapshot.segments, snapshot.zooms);
         setFrameStyle(snapshot.frame);
+        setCrop(snapshot.crop);
         setCursorStyle(snapshot.cursor);
         setSoundStyle(snapshot.sound);
         if (snapshot.camera) {
@@ -325,11 +340,12 @@ export function Editor({
       segments,
       zooms,
       frame: frameStyle,
+      crop,
       cursor: cursorStyle,
       sound: soundStyle,
       camera: camera ? { layout: camLayout, hidden: camHidden } : null,
     }),
-    [duration, segments, zooms, frameStyle, cursorStyle, soundStyle, camera, camLayout, camHidden],
+    [duration, segments, zooms, frameStyle, crop, cursorStyle, soundStyle, camera, camLayout, camHidden],
   );
   useEffect(() => {
     if (!editKey || !settled || duration <= 0) return;
@@ -552,8 +568,10 @@ export function Editor({
   // Live zoom preview: a rAF loop maps the playhead through the zoom regions
   // to a CSS transform on the video element (60fps, no React re-renders).
   const zoomsRef = useRef(zooms);
+  const cropRef = useRef<CropRegion>(FULL_CROP);
   useEffect(() => {
     zoomsRef.current = zooms;
+    cropRef.current = shownCrop;
   });
   // Auto zoom runs on its own as soon as the clip is measured, and undoes
   // itself when switched off — no button to discover. It waits for any stored
@@ -580,12 +598,14 @@ export function Editor({
     h: number;
     radius: number;
     size: FrameSize;
+    crop: CropRegion;
   }>({
     cursor: null,
     w: 0,
     h: 0,
     radius: 0,
     size: { w: 0, h: 0, sourceW: 0, sourceH: 0 },
+    crop: FULL_CROP,
   });
 
   // Click sounds during preview playback. The context is created on the
@@ -618,15 +638,17 @@ export function Editor({
     let raf = 0;
     const tick = () => {
       const video = videoRef.current;
-      if (video && video.videoWidth > 0) {
+      const layer = zoomLayerRef.current;
+      if (video && layer && video.videoWidth > 0) {
         const state = zoomStateAt(zoomsRef.current, video.currentTime);
         const transform = cssZoomTransform(
           state,
           video.videoWidth,
           video.videoHeight,
+          cropRef.current,
         );
-        if (video.style.transform !== transform) {
-          video.style.transform = transform;
+        if (layer.style.transform !== transform) {
+          layer.style.transform = transform;
         }
       }
       // Fire a click sound whenever playback crosses one.
@@ -663,7 +685,7 @@ export function Editor({
           ctx.clearRect(0, 0, w, h);
           if (geo.cursor && geo.size.sourceW > 0) {
             const state = zoomStateAt(zoomsRef.current, video.currentTime);
-            const crop = cropRect(state, geo.size.sourceW, geo.size.sourceH);
+            const crop = cropRect(state, geo.size.sourceW, geo.size.sourceH, geo.crop);
             drawCursorLayer(
               ctx,
               geo.cursor,
@@ -709,20 +731,37 @@ export function Editor({
   const dotDragRef = useRef(false);
   const dotDirtyRef = useRef(false);
 
+  const cropped = !isFullCrop(shownCrop);
   const styled = frameStyle.background !== "none" && dims.w > 0 && dims.h > 0;
   const bg = backgroundById(frameStyle.background);
   // The stage is the exported frame, which isn't always the capture's shape.
   const frame = useMemo(
-    () => outputSize(dims.w, dims.h, frameStyle.aspect),
-    [dims.w, dims.h, frameStyle.aspect],
+    () => frameSizeFor(dims.w, dims.h, shownCrop, frameStyle.aspect),
+    [dims.w, dims.h, shownCrop, frameStyle.aspect],
+  );
+  // The picture being placed is the crop, not the whole capture.
+  const kept = useMemo(
+    () => cropPixels(shownCrop, dims.w, dims.h),
+    [shownCrop, dims.w, dims.h],
   );
   const reframed = dims.w > 0 && (frame.w !== dims.w || frame.h !== dims.h);
   // Anything but the raw capture at its own shape gets the laid-out stage.
-  const framed = styled || reframed;
+  const framed = styled || reframed || cropped;
   const stagePs = frame.w > 0 && containerWidth > 0 ? containerWidth / frame.w : 0;
   const stageRect = framed
-    ? videoRect(frame.w, frame.h, styled ? frameStyle.padding : 0, dims.w, dims.h)
+    ? videoRect(frame.w, frame.h, styled ? frameStyle.padding : 0, kept.w, kept.h)
     : { x: 0, y: 0, w: dims.w, h: dims.h };
+  /** Places the video inside its box so that only the crop shows. */
+  const cropStyle = useMemo(
+    () => ({
+      position: "absolute" as const,
+      width: `${100 / shownCrop.w}%`,
+      height: `${100 / shownCrop.h}%`,
+      left: `${(-shownCrop.x / shownCrop.w) * 100}%`,
+      top: `${(-shownCrop.y / shownCrop.h) * 100}%`,
+    }),
+    [shownCrop],
+  );
 
   // The overlay canvas is backed at source resolution and scaled down by CSS,
   // so its geometry matches the export frame exactly.
@@ -733,13 +772,14 @@ export function Editor({
       h: stageRect.h,
       radius: styled ? radiusPx(frameStyle, stageRect) : 0,
       size: { w: frame.w, h: frame.h, sourceW: dims.w, sourceH: dims.h },
+      crop: shownCrop,
     };
   });
 
   function dotPosition(): { left: number; top: number } | null {
     if (!selectedZoom || dims.w === 0 || stagePs === 0) return null;
     const state = zoomStateAt(zooms, playhead);
-    const crop = cropRect(state, dims.w, dims.h);
+    const crop = cropRect(state, dims.w, dims.h, shownCrop);
     const left =
       (stageRect.x + ((selectedZoom.x * dims.w - crop.x) / crop.w) * stageRect.w) *
       stagePs;
@@ -765,7 +805,7 @@ export function Editor({
     }
     const bounds = stageRef.current.getBoundingClientRect();
     const state = zoomStateAt(zooms, playhead);
-    const crop = cropRect(state, dims.w, dims.h);
+    const crop = cropRect(state, dims.w, dims.h, shownCrop);
     const vx = (event.clientX - bounds.left) / stagePs - stageRect.x;
     const vy = (event.clientY - bounds.top) / stagePs - stageRect.y;
     const sx = crop.x + (vx / stageRect.w) * crop.w;
@@ -976,6 +1016,7 @@ export function Editor({
       const scene = hasScene
         ? {
             style: frameStyle,
+            crop,
             zooms: editor.zooms,
             camera:
               cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
@@ -1080,24 +1121,38 @@ export function Editor({
                 : undefined
             }
           >
-            <video
-              ref={videoRef}
-              key={recording.url}
-              src={recording.url}
-              playsInline
-              onLoadedMetadata={handleLoadedMetadata}
-              onDurationChange={handleDurationChange}
-              onTimeUpdate={handleTimeUpdate}
-              onEnded={() => {
-                setPlayingBoth(false);
-                if (measuredRef.current) setPlayhead(editor.duration);
-              }}
-              onClick={togglePlay}
+            {/* The zoom animates on this layer; the video inside it is placed
+                once so that only the crop shows. */}
+            <div
+              ref={zoomLayerRef}
               className={cn(
-                "origin-top-left cursor-pointer",
-                styled ? "h-full w-full" : "w-full",
+                "origin-top-left",
+                framed ? "absolute inset-0" : "relative w-full",
               )}
-            />
+            >
+              <video
+                ref={videoRef}
+                key={recording.url}
+                src={recording.url}
+                playsInline
+                onLoadedMetadata={handleLoadedMetadata}
+                onDurationChange={handleDurationChange}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={() => {
+                  setPlayingBoth(false);
+                  if (measuredRef.current) setPlayhead(editor.duration);
+                }}
+                onClick={cropping ? undefined : togglePlay}
+                className={cn(!cropping && "cursor-pointer", !framed && "w-full")}
+                style={framed ? cropStyle : undefined}
+              />
+            </div>
+
+            {/* Choosing the area. Sits over the whole capture, which is what
+                the stage falls back to showing while this is open. */}
+            {cropping && (
+              <CropOverlay crop={crop} onChange={(next) => setCrop(next)} />
+            )}
 
             {/* Redrawn pointer and click ripples. */}
             {sceneCursor && (
@@ -1363,7 +1418,18 @@ export function Editor({
             </div>
           )}
 
-          <FramePanel style={frameStyle} onChange={applyFrameStyle} />
+          <FramePanel
+            style={frameStyle}
+            onChange={applyFrameStyle}
+            crop={crop}
+            cropping={cropping}
+            source={dims}
+            onToggleCrop={() => setCropping((on) => !on)}
+            onCrop={(next) => {
+              setCrop(clampCrop(next));
+              if (isFullCrop(next)) setCropping(false);
+            }}
+          />
 
           <SoundPanel
             style={soundStyle}

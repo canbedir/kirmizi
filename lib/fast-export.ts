@@ -21,7 +21,7 @@ import {
   type Scene,
   type SceneImage,
 } from "@/lib/render-scene";
-import { outputSize } from "@/lib/scene";
+import { frameSizeFor } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/mp4-demux";
 import { createFrameReader } from "@/lib/frame-reader";
@@ -247,9 +247,10 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
   const sourceW = source.width;
   const sourceH = source.height;
   if (!sourceW || !sourceH) throw new Error("The recording has no frame size.");
-  // The exported frame may be a different shape from the capture.
+  // The exported frame may be a different shape from the capture, and may be
+  // showing only part of it.
   const { w: width, h: height } = scene
-    ? outputSize(sourceW, sourceH, scene.style.aspect)
+    ? frameSizeFor(sourceW, sourceH, scene.crop, scene.style.aspect)
     : { w: sourceW, h: sourceH };
   const size: FrameSize = { w: width, h: height, sourceW, sourceH };
 

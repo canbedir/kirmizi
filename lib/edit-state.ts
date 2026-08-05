@@ -17,7 +17,15 @@ import {
   DEFAULT_CURSOR_STYLE,
   type CursorStyle,
 } from "@/lib/cursor-track";
-import { DEFAULT_FRAME_STYLE, type FrameStyle, type ZoomRegion } from "@/lib/scene";
+import {
+  DEFAULT_FRAME_STYLE,
+  FULL_CROP,
+  clampCrop,
+  isFullCrop,
+  type CropRegion,
+  type FrameStyle,
+  type ZoomRegion,
+} from "@/lib/scene";
 import { DEFAULT_SOUND_STYLE, type SoundStyle } from "@/lib/sound";
 import type { Segment } from "@/lib/use-video-editor";
 
@@ -32,6 +40,7 @@ export interface StoredEdits {
   segments: Segment[];
   zooms: ZoomRegion[];
   frame: FrameStyle;
+  crop: CropRegion;
   cursor: CursorStyle;
   sound: SoundStyle;
   camera: { layout: CameraLayout; hidden: boolean } | null;
@@ -42,6 +51,7 @@ export interface EditSnapshot {
   segments: Segment[];
   zooms: ZoomRegion[];
   frame: FrameStyle;
+  crop: CropRegion;
   cursor: CursorStyle;
   sound: SoundStyle;
   camera: { layout: CameraLayout; hidden: boolean } | null;
@@ -122,6 +132,16 @@ export function readEdits(value: unknown, duration: number): EditSnapshot | null
     segments,
     zooms: readZooms(value.zooms, duration),
     frame: { ...DEFAULT_FRAME_STYLE, ...frame },
+    // A crop is only meaningful if it's a real rectangle inside the capture;
+    // anything else falls back to the whole screen.
+    crop: isObject(value.crop)
+      ? clampCrop({
+          x: num(value.crop.x, 0),
+          y: num(value.crop.y, 0),
+          w: num(value.crop.w, 1),
+          h: num(value.crop.h, 1),
+        })
+      : FULL_CROP,
     cursor: { ...DEFAULT_CURSOR_STYLE, ...cursor },
     sound: { ...DEFAULT_SOUND_STYLE, ...sound },
     camera: camera
@@ -152,6 +172,7 @@ export function isUntouched(snapshot: EditSnapshot, defaults: {
     JSON.stringify(a) === JSON.stringify(b);
   return (
     whole &&
+    isFullCrop(snapshot.crop) &&
     // Auto zooms are the editor's own suggestion, not the user's work.
     snapshot.zooms.every((z) => z.auto) &&
     sameStyle(snapshot.frame, defaults.frame) &&

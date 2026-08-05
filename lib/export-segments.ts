@@ -7,7 +7,7 @@ import {
   type FrameSize,
   type Scene,
 } from "@/lib/render-scene";
-import { outputSize, sceneActive } from "@/lib/scene";
+import { frameSizeFor, sceneActive } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 import { RUMBLE_HZ, type SoundTreatment } from "@/lib/sound";
 
@@ -152,9 +152,10 @@ export async function exportSegments(
     }
     const sourceW = video.videoWidth || 1280;
     const sourceH = video.videoHeight || 720;
-    const { w: frameW, h: frameH } = outputSize(
+    const { w: frameW, h: frameH } = frameSizeFor(
       sourceW,
       sourceH,
+      scene.crop,
       scene.style.aspect,
     );
     const size: FrameSize = { w: frameW, h: frameH, sourceW, sourceH };

@@ -1,9 +1,19 @@
 "use client";
 
-import { Ban } from "lucide-react";
+import { Ban, Crop, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { ASPECTS, BACKGROUNDS, aspectById, type FrameStyle } from "@/lib/scene";
+import {
+  ASPECTS,
+  BACKGROUNDS,
+  FULL_CROP,
+  aspectById,
+  fitCrop,
+  isFullCrop,
+  type CropRegion,
+  type FrameStyle,
+} from "@/lib/scene";
 import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
 
 // Styling controls for the frame drawn around the recording: background
 // preset swatches plus padding / corner / shadow sliders. Purely local state
@@ -73,12 +83,24 @@ function AspectMark({ ratio }: { ratio: number | null }) {
 export function FramePanel({
   style,
   onChange,
+  crop,
+  cropping,
+  source,
+  onToggleCrop,
+  onCrop,
 }: {
   style: FrameStyle;
   onChange: (style: FrameStyle) => void;
+  crop: CropRegion;
+  cropping: boolean;
+  /** The capture's own dimensions, which a shape is fitted against. */
+  source: { w: number; h: number };
+  onToggleCrop: () => void;
+  onCrop: (crop: CropRegion) => void;
 }) {
   const plain = style.background === "none";
   const aspect = aspectById(style.aspect);
+  const cropped = !isFullCrop(crop);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
@@ -139,11 +161,58 @@ export function FramePanel({
             </button>
           );
         })}
-        {aspect.ratio !== null && plain && (
-          <span className="font-mono text-[11px] text-muted-foreground/80">
-            pick a background to fill the room around it
-          </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          Crop
+        </span>
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onToggleCrop}
+          aria-pressed={cropping}
+          className={cn("gap-1.5", cropping && "border-red text-red")}
+          title="Choose the part of the screen the clip is of"
+        >
+          <Crop className="size-3.5" />
+          {cropping ? "Done" : "Choose area"}
+        </Button>
+
+        {aspect.ratio !== null && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onCrop(fitCrop(source.w, source.h, aspect.ratio))}
+            className="gap-1.5 font-mono text-[11px]"
+            title={`Take the biggest ${aspect.label} area out of the screen`}
+          >
+            Fill {aspect.label}
+          </Button>
         )}
+
+        {cropped && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onCrop(FULL_CROP)}
+            aria-label="Use the whole screen"
+            title="Use the whole screen"
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+        )}
+
+        <span className="ml-auto font-mono text-[11px] text-muted-foreground/80">
+          {cropping
+            ? "drag the rectangle, then Done"
+            : cropped
+              ? `${Math.round(crop.w * 100)}% × ${Math.round(crop.h * 100)}% of the screen`
+              : aspect.ratio !== null && plain
+                ? "pick a background, or crop to fill the shape"
+                : "the whole screen"}
+        </span>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:gap-5">

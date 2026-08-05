@@ -30,6 +30,87 @@ export const DEFAULT_FRAME_STYLE: FrameStyle = {
 };
 
 /* ---------------------------------------------------------------- */
+/* Crop                                                              */
+/* ---------------------------------------------------------------- */
+
+/**
+ * The part of the recording that gets exported, as fractions of the capture.
+ *
+ * A screen is captured whole because that's all `getDisplayMedia` offers, but
+ * the interesting part is often one window or one corner. Choosing it here
+ * rather than at capture time keeps the decision reversible — the recording
+ * on disk is still the whole screen.
+ *
+ * Zooms compose inside it: the crop says what the shot is, a zoom says where
+ * to push in within that shot.
+ */
+export interface CropRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const FULL_CROP: CropRegion = { x: 0, y: 0, w: 1, h: 1 };
+
+/** Smallest fraction of the capture a crop may keep, per axis. */
+export const CROP_MIN = 0.08;
+
+export function isFullCrop(crop: CropRegion | null | undefined): boolean {
+  if (!crop) return true;
+  return (
+    crop.x <= 1e-4 &&
+    crop.y <= 1e-4 &&
+    crop.w >= 1 - 1e-4 &&
+    crop.h >= 1 - 1e-4
+  );
+}
+
+/** Keep a crop inside the capture, and big enough to be worth having. */
+export function clampCrop(crop: CropRegion): CropRegion {
+  const w = clamp(crop.w, CROP_MIN, 1);
+  const h = clamp(crop.h, CROP_MIN, 1);
+  return { x: clamp(crop.x, 0, 1 - w), y: clamp(crop.y, 0, 1 - h), w, h };
+}
+
+/**
+ * The largest crop of a given shape that fits the capture, centred.
+ *
+ * Asking for 9:16 without one leaves a wide picture stranded in the middle of
+ * a tall frame; this takes a vertical slice out of the screen instead, which
+ * is what a vertical clip of a desktop actually wants to be.
+ */
+export function fitCrop(
+  sourceW: number,
+  sourceH: number,
+  ratio: number | null,
+): CropRegion {
+  if (!ratio || sourceW <= 0 || sourceH <= 0) return FULL_CROP;
+  const captured = sourceW / sourceH;
+  if (ratio > captured) {
+    const h = captured / ratio;
+    return { x: 0, y: (1 - h) / 2, w: 1, h };
+  }
+  const w = ratio / captured;
+  return { x: (1 - w) / 2, y: 0, w, h: 1 };
+}
+
+/** The crop in capture pixels. */
+export function cropPixels(
+  crop: CropRegion | null | undefined,
+  sourceW: number,
+  sourceH: number,
+): Rect {
+  const c = crop ?? FULL_CROP;
+  return {
+    x: c.x * sourceW,
+    y: c.y * sourceH,
+    w: c.w * sourceW,
+    h: c.h * sourceH,
+  };
+}
+
+/* ---------------------------------------------------------------- */
 /* Output shape                                                      */
 /* ---------------------------------------------------------------- */
 
@@ -76,6 +157,22 @@ export function outputSize(
   return ratio >= 1
     ? { w: even(long), h: even(long / ratio) }
     : { w: even(long * ratio), h: even(long) };
+}
+
+/**
+ * The exported frame, given what was captured, what of it was kept, and the
+ * shape asked for. A crop is what the export is *of*, so with no shape chosen
+ * the file comes out at the crop's own size — cropping in is the same as
+ * making the picture bigger.
+ */
+export function frameSizeFor(
+  sourceW: number,
+  sourceH: number,
+  crop: CropRegion | null | undefined,
+  aspect: string,
+): { w: number; h: number } {
+  const kept = cropPixels(crop, sourceW, sourceH);
+  return outputSize(kept.w, kept.h, aspect);
 }
 
 /** A timed zoom-in on a focal point, with eased ramps at both ends. */
@@ -211,8 +308,12 @@ export function isDefaultFrame(style: FrameStyle): boolean {
 }
 
 /** Whether the scene changes any pixels (and so forces a re-encode). */
-export function sceneActive(style: FrameStyle, zooms: ZoomRegion[]): boolean {
-  return !isDefaultFrame(style) || zooms.length > 0;
+export function sceneActive(
+  style: FrameStyle,
+  zooms: ZoomRegion[],
+  crop?: CropRegion | null,
+): boolean {
+  return !isDefaultFrame(style) || zooms.length > 0 || !isFullCrop(crop);
 }
 
 /* ---------------------------------------------------------------- */
@@ -323,26 +424,42 @@ export function zoomStateAt(zooms: ZoomRegion[], time: number): ZoomState {
  * The source-space crop for a zoom state: a window 1/scale the size of the
  * frame, centred on the focal point and clamped inside the frame.
  */
-export function cropRect(zoom: ZoomState, w: number, h: number): Rect {
-  const cw = w / zoom.scale;
-  const ch = h / zoom.scale;
-  const x = clamp(zoom.fx * w - cw / 2, 0, w - cw);
-  const y = clamp(zoom.fy * h - ch / 2, 0, h - ch);
+export function cropRect(
+  zoom: ZoomState,
+  w: number,
+  h: number,
+  base?: CropRegion | null,
+): Rect {
+  // The zoom works inside the crop, not inside the capture: cropping decides
+  // what the shot is, zooming decides where to look within it.
+  const b = cropPixels(base, w, h);
+  const cw = b.w / zoom.scale;
+  const ch = b.h / zoom.scale;
+  // Focal points stay in capture coordinates — that's what the cursor track
+  // and hand-placed zooms are in — and get held inside the crop.
+  const x = clamp(zoom.fx * w - cw / 2, b.x, b.x + b.w - cw);
+  const y = clamp(zoom.fy * h - ch / 2, b.y, b.y + b.h - ch);
   return { x, y, w: cw, h: ch };
 }
 
 /**
- * CSS transform equivalent of `cropRect` for an element that fills the video
- * box (requires `transform-origin: 0 0` and an `overflow: hidden` parent).
+ * CSS transform equivalent of `cropRect` for an element whose box already
+ * shows the crop (requires `transform-origin: 0 0` and an `overflow: hidden`
+ * parent). Expressed relative to the crop, so the static framing can be laid
+ * out once and only the zoom animates.
  */
 export function cssZoomTransform(
   zoom: ZoomState,
   w: number,
   h: number,
+  base?: CropRegion | null,
 ): string {
   if (zoom.scale <= 1.001) return "";
-  const crop = cropRect(zoom, w, h);
-  const tx = (crop.x / w) * 100;
-  const ty = (crop.y / h) * 100;
-  return `scale(${zoom.scale.toFixed(4)}) translate(${-tx.toFixed(4)}%, ${-ty.toFixed(4)}%)`;
+  const b = cropPixels(base, w, h);
+  const crop = cropRect(zoom, w, h, base);
+  const tx = ((crop.x - b.x) / b.w) * 100;
+  const ty = ((crop.y - b.y) / b.h) * 100;
+  // Parenthesised: `-tx.toFixed(4)` negates the *string*, which coerces back
+  // to a number and throws the fixed precision away.
+  return `scale(${zoom.scale.toFixed(4)}) translate(${(-tx).toFixed(4)}%, ${(-ty).toFixed(4)}%)`;
 }

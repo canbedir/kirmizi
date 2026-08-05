@@ -8,10 +8,12 @@
 import {
   backgroundById,
   cameraGeometry,
+  cropPixels,
   cropRect,
   radiusPx,
   videoRect,
   zoomStateAt,
+  type CropRegion,
   type FrameStyle,
   type Rect,
   type SceneContext,
@@ -73,6 +75,8 @@ export function imageOfVideo(
 
 export interface Scene {
   style: FrameStyle;
+  /** The part of the capture being exported; zooms work inside it. */
+  crop?: CropRegion | null;
   zooms: ZoomRegion[];
   /** Present when a webcam bubble should be composited over the video. */
   camera?: SceneCamera | null;
@@ -293,14 +297,17 @@ export function drawSceneFrame(
     ctx.fillRect(0, 0, frameW, frameH);
   }
 
-  // Padding only applies to a styled frame, but the contain-fit always does:
-  // that's what puts a wide capture in the middle of a vertical export.
+  // The picture being placed is the crop, not the whole capture, so the
+  // contain-fit is against its shape. Padding only applies to a styled frame,
+  // but the fit always does: that's what puts a wide picture in the middle of
+  // a vertical export.
+  const kept = cropPixels(scene.crop, sourceW, sourceH);
   const rect = videoRect(
     frameW,
     frameH,
     styled ? scene.style.padding : 0,
-    sourceW,
-    sourceH,
+    kept.w,
+    kept.h,
   );
   const radius = styled ? radiusPx(scene.style, rect) : 0;
 
@@ -318,7 +325,7 @@ export function drawSceneFrame(
   }
 
   const zoom = zoomStateAt(scene.zooms, time);
-  const crop = cropRect(zoom, sourceW, sourceH);
+  const crop = cropRect(zoom, sourceW, sourceH, scene.crop);
 
   ctx.save();
   roundRectPath(ctx, rect, radius);
