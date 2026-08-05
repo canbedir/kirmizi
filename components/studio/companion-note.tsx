@@ -1,6 +1,8 @@
-import { Check, X } from "lucide-react";
+import { Check, Puzzle, X } from "lucide-react";
 import { Reveal } from "@/components/landing/reveal";
-import { siteConfig } from "@/lib/site";
+import { cn } from "@/lib/cn";
+import { companionInStore, companionUrl, siteConfig } from "@/lib/site";
+import { buttonVariants } from "@/components/ui/button";
 
 // The honest part of the pitch. Studio needs an extension, and an extension
 // asking to run on every site deserves a plain account of what it does —
@@ -65,20 +67,38 @@ export function CompanionNote() {
             </div>
           </div>
 
-          <p className="mt-8 border-t border-border pt-6 text-sm leading-relaxed text-muted-foreground">
-            Without it, everything else still works — recording, trimming,
-            frames, camera, export. You lose the zooms and the click marks, and
-            nothing more. The extension is open source alongside the app:{" "}
-            <a
-              href={`${siteConfig.githubUrl}/tree/main/extension`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-red underline underline-offset-4 hover:text-red-hover"
-            >
-              read every line of it
-            </a>
-            .
-          </p>
+          <div className="mt-8 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+              Without it, everything else still works — recording, trimming,
+              frames, camera, export. You lose the zooms and the click marks,
+              and nothing more.
+            </p>
+
+            <div className="flex flex-none flex-col items-start gap-2 sm:items-end">
+              <a
+                href={companionUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  buttonVariants({ size: "sm" }),
+                  "gap-2 whitespace-nowrap",
+                )}
+              >
+                <Puzzle className="size-4" />
+                {companionInStore
+                  ? "Add to Chrome — it's free"
+                  : "Get the extension"}
+              </a>
+              <a
+                href={`${siteConfig.githubUrl}/tree/main/extension`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                or read every line of it
+              </a>
+            </div>
+          </div>
         </div>
       </Reveal>
     </section>

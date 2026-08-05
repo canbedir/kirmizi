@@ -3,6 +3,7 @@
 import { Camera, Loader2, Mic, MousePointer2, Volume2 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { companionInStore, companionUrl } from "@/lib/site";
 import { Switch } from "@/components/ui/switch";
 import {
   CameraSettingsDialog,
@@ -150,7 +151,7 @@ export function IdleControls({
 
       <RecorderSettings settings={settings} onChange={onSettingsChange} />
 
-      {companionReady && (
+      {companionReady ? (
         <span className="inline-flex max-w-md items-center gap-2 rounded-full border border-red/30 bg-red/10 px-3 py-1.5 text-center font-mono text-xs text-foreground">
           <MousePointer2 className="size-3.5 shrink-0 text-red" />
           Cursor tracking on
@@ -160,6 +161,21 @@ export function IdleControls({
               : "auto zoom · click effects"}
           </span>
         </span>
+      ) : (
+        // Offered rather than demanded: everything here works without it, so
+        // this stays a quiet line instead of a banner asking for permissions.
+        <a
+          href={companionUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex max-w-md items-center gap-2 rounded-full border border-border px-3 py-1.5 text-center font-mono text-xs text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+        >
+          <MousePointer2 className="size-3.5 shrink-0" />
+          {companionInStore ? "Add the companion" : "Get the companion"}
+          <span className="text-muted-foreground/70">
+            for auto zoom and click effects
+          </span>
+        </a>
       )}
 
       <p className="font-mono text-xs text-muted-foreground/70">

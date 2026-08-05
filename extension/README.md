@@ -1,7 +1,10 @@
 # Kırmızı Companion
 
-An optional Chrome extension that lets Kırmızı redraw your cursor, add click
-effects, and zoom into what you clicked.
+An optional Chrome extension that lets Kırmızı mark your clicks and zoom into
+what you clicked.
+
+**[Add it from the Chrome Web Store](https://chromewebstore.google.com/detail/kirmizi-companion/dffcgjfcmhcianhbahkmajigonlmbdaj)** — or build it from
+this folder, below.
 
 ## Why it exists
 
@@ -17,15 +20,18 @@ and nothing about the pages you visit — no URL, no content, no element — is
 ever read. Positions are normalised to fractions of the screen or viewport the
 moment they're captured.
 
-## Install (unpacked)
+## Install
+
+From the store it's one click. To run this copy instead — which is what you
+want when changing it:
 
 1. Open `chrome://extensions`
 2. Turn on **Developer mode**
 3. **Load unpacked** → pick this `extension/` folder
 
 Reload the Kırmızı tab afterwards. Record as usual: with the companion
-installed, the recording is captured without the system cursor and the editor
-gains a **Cursor** panel and an **Auto zoom** button.
+installed, the editor gains a **Clicks** panel with auto zoom, click marks and
+click sounds.
 
 ## What works where
 
