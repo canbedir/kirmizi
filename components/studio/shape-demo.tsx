@@ -23,10 +23,14 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 /** The tallest and widest the frame ever gets, in the box we draw it in. */
 const BOX = 190;
 
+/** Rounded: a full-precision length in an inline style hydrates as a
+ *  mismatch, because the browser normalises what it parses. */
+const round = (value: number) => Math.round(value * 100) / 100;
+
 function frameSize(ratio: number) {
   return ratio >= 1
-    ? { width: BOX, height: BOX / ratio }
-    : { width: BOX * ratio, height: BOX };
+    ? { width: BOX, height: round(BOX / ratio) }
+    : { width: round(BOX * ratio), height: BOX };
 }
 
 /** The recording, 16:9, contain-fitted with a margin — the same rule as export. */
@@ -36,7 +40,7 @@ function pictureSize(ratio: number) {
   const availW = frame.width - margin * 2;
   const availH = frame.height - margin * 2;
   const scale = Math.min(availW / 16, availH / 9);
-  return { width: 16 * scale, height: 9 * scale };
+  return { width: round(16 * scale), height: round(9 * scale) };
 }
 
 export function ShapeDemo() {

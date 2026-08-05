@@ -43,14 +43,22 @@ function noise(seed: number): number {
   return x - Math.floor(x);
 }
 
-/** Heights for one region's bars: lively when active, near-flat when not. */
+/**
+ * Heights for one region's bars: lively when active, near-flat when not.
+ *
+ * Rounded, and not for tidiness: a full-precision percentage in an inline
+ * style is normalised by the browser when it parses the attribute, so the
+ * server's "44.954532884838585%" becomes "44.9545%" and every bar hydrates
+ * as a mismatch.
+ */
 function bars(seed: number, active: boolean, count: number): number[] {
   return Array.from({ length: count }, (_, i) => {
     const n = noise(seed * 97 + i * 13);
     const m = noise(seed * 41 + i * 7);
     // A floor of movement even in the quiet parts — a recording is never
     // digitally silent, and pretending otherwise looks fake.
-    return active ? 0.3 + n * 0.6 * (0.55 + m * 0.45) : 0.06 + n * 0.06;
+    const height = active ? 0.3 + n * 0.6 * (0.55 + m * 0.45) : 0.06 + n * 0.06;
+    return Math.round(height * 10_000) / 10_000;
   });
 }
 
@@ -141,7 +149,7 @@ export function PaceDemo() {
         key={k}
         className="min-w-0 flex-1 rounded-full bg-muted-foreground/40"
         style={{
-          height: `${Math.max(5, height * 100)}%`,
+          height: `${Math.max(5, Math.round(height * 10_000) / 100)}%`,
           alignSelf: floor ? "flex-end" : "center",
         }}
       />
