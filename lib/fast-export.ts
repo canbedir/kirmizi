@@ -9,10 +9,13 @@
 // renderer, and encodes the result. Every frame is accounted for, and it runs
 // several times faster than the clip is long.
 //
-// Audio is mixed offline in one pass, which is effectively instant, and comes
-// out as AAC — so mp4 exports no longer need the ffmpeg remux afterwards.
+// Audio is mixed offline in one pass, which is effectively instant. Where the
+// browser can encode AAC — Chrome and Edge — that's the end of it, and the
+// export needs no ffmpeg at all. Firefox has no AAC encoder, so it writes
+// Opus and the caller converts just the audio afterwards, which is seconds
+// rather than the full re-encode the old path cost.
 //
-// Needs WebCodecs and an mp4 source. Anything else falls back to the old path.
+// Needs WebCodecs and a container we can demux. Anything else falls back.
 
 import type { Segment } from "@/lib/use-video-editor";
 import {
@@ -23,7 +26,7 @@ import {
 } from "@/lib/render-scene";
 import { frameSizeFor } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
-import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/mp4-demux";
+import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/demux";
 import { createFrameReader } from "@/lib/frame-reader";
 import { RUMBLE_HZ, decodeRecordingAudio, type SoundTreatment } from "@/lib/sound";
 import { outputTimeAt, place, plan, type Placed } from "@/lib/timeline";
@@ -57,6 +60,16 @@ export interface FastExportInput {
   onProgress?: (fraction: number) => void;
 }
 
+export interface FastExportResult {
+  blob: Blob;
+  /**
+   * The soundtrack came out as Opus because the browser can't encode AAC.
+   * It's a legal mp4, but native players and editors won't decode Opus in
+   * one, so the caller should transcode the audio before handing it over.
+   */
+  needsAacRemux: boolean;
+}
+
 /** Whether this recording is worth trying the frame-exact path on. */
 export function canFastExport(blob: Blob, mimeType: string): boolean {
   return (
@@ -73,6 +86,59 @@ export function canFastExport(blob: Blob, mimeType: string): boolean {
 
 type MuxVideoCodec = "avc" | "hevc" | "vp9" | "av1";
 
+/** Frames the timing probe below encodes. Enough for reordering to show. */
+const PROBE_FRAMES = 6;
+
+/**
+ * Does this encoder hand back the timestamps it was given, in the order it was
+ * given them?
+ *
+ * `isConfigSupported` only promises the config is *accepted*. Firefox accepts
+ * H.264 High profile and then encodes with B-frames, emitting chunks in decode
+ * order with every presentation timestamp shifted by one frame — the first
+ * frame's disappears entirely. An mp4 written from that is silently wrong, so
+ * the encoder is asked to prove itself on a handful of frames first.
+ */
+async function keepsTime(config: VideoEncoderConfig): Promise<boolean> {
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  try {
+    ({ canvas } = makeCanvas(config.width, config.height));
+  } catch {
+    return false;
+  }
+  const stamps: number[] = [];
+  // Deliberately uneven, like a screen recording: even spacing would hide a
+  // shift of exactly one frame.
+  const fed = [0, 46_000, 113_000, 180_000, 246_000, 313_000];
+  let broken = false;
+
+  const encoder = new VideoEncoder({
+    output: (chunk) => stamps.push(chunk.timestamp),
+    error: () => {
+      broken = true;
+    },
+  });
+  try {
+    encoder.configure(config);
+    for (let i = 0; i < PROBE_FRAMES; i++) {
+      const frame = new VideoFrame(canvas, {
+        timestamp: fed[i],
+        duration: 66_000,
+      });
+      encoder.encode(frame, { keyFrame: i === 0 });
+      frame.close();
+    }
+    await encoder.flush();
+  } catch {
+    return false;
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
+  }
+
+  if (broken || stamps.length !== PROBE_FRAMES) return false;
+  return stamps.every((t, i) => t === fed[i]);
+}
+
 async function pickVideoEncoder(
   width: number,
   height: number,
@@ -84,10 +150,14 @@ async function pickVideoEncoder(
     100_000_000,
     Math.max(8_000_000, Math.round(width * height * framerate * 0.2)),
   );
+  // Best picture first. Baseline has neither B-frames nor CABAC, so it needs
+  // more bits for the same result — but the bitrate here is generous, and it's
+  // the profile that behaves everywhere.
   const candidates: { codec: string; muxCodec: MuxVideoCodec }[] = [
     { codec: "avc1.640034", muxCodec: "avc" }, // High 5.2 — covers 4K
-    { codec: "avc1.640028", muxCodec: "avc" },
-    { codec: "avc1.42E028", muxCodec: "avc" }, // Baseline, last resort
+    { codec: "avc1.640028", muxCodec: "avc" }, // High 4.0
+    { codec: "avc1.42E034", muxCodec: "avc" }, // Baseline 5.2
+    { codec: "avc1.42E028", muxCodec: "avc" }, // Baseline 4.0
     { codec: "vp09.00.41.08", muxCodec: "vp9" },
   ];
   for (const { codec, muxCodec } of candidates) {
@@ -103,7 +173,8 @@ async function pickVideoEncoder(
     const support = await VideoEncoder.isConfigSupported(config).catch(
       () => null,
     );
-    if (support?.supported) return { config, muxCodec };
+    if (!support?.supported) continue;
+    if (await keepsTime(config)) return { config, muxCodec };
   }
   throw new Error("This browser can't encode video frames.");
 }
@@ -111,6 +182,37 @@ async function pickVideoEncoder(
 /* ---------------------------------------------------------------- */
 /* Audio                                                             */
 /* ---------------------------------------------------------------- */
+
+type MuxAudioCodec = "aac" | "opus";
+
+/**
+ * AAC where the browser has an encoder, Opus where it doesn't.
+ *
+ * Firefox ships neither an AAC encoder nor an mp4 muxer, for licensing
+ * reasons that aren't going to change. Opus in an mp4 is well-specified and
+ * every browser reads it — it's desktop players that don't — so writing it
+ * here and converting the audio afterwards keeps the expensive part of the
+ * export on this path.
+ */
+async function pickAudioEncoder(
+  sampleRate: number,
+  numberOfChannels: number,
+): Promise<{ codec: string; muxCodec: MuxAudioCodec }> {
+  const candidates: { codec: string; muxCodec: MuxAudioCodec }[] = [
+    { codec: "mp4a.40.2", muxCodec: "aac" },
+    { codec: "opus", muxCodec: "opus" },
+  ];
+  for (const candidate of candidates) {
+    const support = await AudioEncoder.isConfigSupported({
+      codec: candidate.codec,
+      sampleRate,
+      numberOfChannels,
+      bitrate: AUDIO_BITRATE,
+    }).catch(() => null);
+    if (support?.supported) return candidate;
+  }
+  throw new Error("This browser can't encode audio.");
+}
 
 /**
  * Build the finished soundtrack in one offline pass: each kept segment played
@@ -191,7 +293,7 @@ async function renderAudio(
   return ctx.startRendering();
 }
 
-/** Feed a rendered buffer through the AAC encoder. */
+/** Feed a rendered buffer through the audio encoder. */
 async function encodeAudio(
   buffer: AudioBuffer,
   encoder: AudioEncoder,
@@ -239,7 +341,9 @@ function makeCanvas(width: number, height: number) {
   return { canvas, ctx };
 }
 
-export async function fastExport(input: FastExportInput): Promise<Blob> {
+export async function fastExport(
+  input: FastExportInput,
+): Promise<FastExportResult> {
   const { blob, segments, scene, cameraBlob, onProgress } = input;
   const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
 
@@ -280,16 +384,20 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
     fps,
   );
 
+  const audioCodec = audio
+    ? await pickAudioEncoder(audio.sampleRate, audio.numberOfChannels)
+    : null;
+
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
     // No frameRate: that would round every timestamp onto a fixed grid, which
     // is exactly the resampling this path avoids.
     video: { codec: muxCodec, width, height },
-    ...(audio
+    ...(audio && audioCodec
       ? {
           audio: {
-            codec: "aac" as const,
+            codec: audioCodec.muxCodec,
             numberOfChannels: audio.numberOfChannels,
             sampleRate: audio.sampleRate,
           },
@@ -303,13 +411,13 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
     fatal ??= e instanceof Error ? e : new Error(String(e));
   };
 
-  if (audio) {
+  if (audio && audioCodec) {
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: fail,
     });
     audioEncoder.configure({
-      codec: "mp4a.40.2",
+      codec: audioCodec.codec,
       sampleRate: audio.sampleRate,
       numberOfChannels: audio.numberOfChannels,
       bitrate: AUDIO_BITRATE,
@@ -384,7 +492,10 @@ export async function fastExport(input: FastExportInput): Promise<Blob> {
     await videoEncoder.flush();
     if (fatal) throw fatal;
     muxer.finalize();
-    return new Blob([target.buffer], { type: "video/mp4" });
+    return {
+      blob: new Blob([target.buffer], { type: "video/mp4" }),
+      needsAacRemux: audioCodec?.muxCodec === "opus",
+    };
   } finally {
     reader.close();
     cameraReader?.close();

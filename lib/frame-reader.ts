@@ -1,6 +1,6 @@
 "use client";
 
-// Turns a demuxed mp4 into something you can ask for a frame by time.
+// Turns a demuxed recording into something you can ask for a frame by time.
 //
 // The point of the whole exercise: a VideoDecoder fed its samples in order
 // runs several times faster than playback, while seeking a <video> element to
@@ -8,7 +8,21 @@
 // from the previous keyframe and throw the rest away. So frames are pulled in
 // order and kept, and only a genuine jump backwards costs a reset.
 
-import type { DemuxedVideo } from "@/lib/mp4-demux";
+import type { DemuxedVideo } from "@/lib/demux";
+
+/**
+ * How far past the asked-for moment a frame may start and still count as the
+ * one showing then.
+ *
+ * Frame times travel from the demuxer as microseconds, become seconds for the
+ * timeline, and are turned back into microseconds here — a round trip that
+ * doesn't always land where it started. 1001000µs comes back as
+ * 1000999.9999999999, so a frame beginning exactly on that moment reads as
+ * still to come, and the previous one gets held a frame too long. A
+ * microsecond of slack is far more than the error and far less than the gap
+ * between two frames, which is thousands even at 240fps.
+ */
+const PICK_SLOP = 1;
 
 /** Samples in flight before we stop feeding. */
 const MAX_DECODE_QUEUE = 24;
@@ -142,7 +156,7 @@ export function createFrameReader(source: DemuxedVideo): FrameReader {
     for (;;) {
       if (!ahead) ahead = await pull();
       if (!ahead) break; // end of stream — hold the last frame
-      if (current && ahead.timestamp > us) break;
+      if (current && ahead.timestamp > us + PICK_SLOP) break;
       // No frame yet: take whatever comes first even if it starts late.
       if (!current && ahead.timestamp > us + slop) break;
       current?.close();

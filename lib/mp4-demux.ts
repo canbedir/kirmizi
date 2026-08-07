@@ -4,10 +4,11 @@
 // directly, instead of playing the file back through a <video> element in real
 // time. Everything here is container work — no pixels are touched.
 //
-// Only mp4 is handled, which is what Chrome and Edge produce (the recorder
-// asks for mp4 first). Anything else falls back to the real-time exporter.
+// This is the Chrome and Edge path — they record mp4 because they can encode
+// H.264. Firefox records WebM instead; see webm-demux.ts.
 
 import type { Track as Mp4Track } from "mp4box";
+import { agreeConfig, codecCandidates, type DemuxedVideo } from "@/lib/demux";
 
 /**
  * How much of the recording is in memory at once while demuxing, and how many
@@ -16,51 +17,6 @@ import type { Track as Mp4Track } from "mp4box";
  */
 const READ_CHUNK = 8 * 1024 * 1024;
 const SAMPLE_BATCH = 500;
-
-/**
- * The encoded samples are held as chunks — about the size of the recording —
- * and the re-encode accumulates alongside them, so there's still a limit; it's
- * just no longer three copies of the file.
- */
-const MAX_INPUT_BYTES = 2 * 1024 * 1024 * 1024;
-
-export interface DemuxedVideo {
-  chunks: EncodedVideoChunk[];
-  config: VideoDecoderConfig;
-  width: number;
-  height: number;
-  /** Seconds. */
-  duration: number;
-  /** Frames per second, averaged over the file. */
-  fps: number;
-  /** Whether the file carries an audio track at all — a recording made with
-   *  nothing to listen to is silent on purpose, not a decode failure. */
-  hasAudio: boolean;
-}
-
-/**
- * mp4box hands back whatever codec string the file declares, and MediaRecorder
- * writes VP9 with a level of 0 — which VideoDecoder rejects as ambiguous. Fill
- * in a level that covers the resolution and let the probe below settle it.
- */
-function codecCandidates(codec: string, width: number, height: number): string[] {
-  if (!codec.startsWith("vp09")) return [codec];
-  const parts = codec.split(".");
-  const profile = parts[1] ?? "00";
-  const depth = parts[3] ?? "08";
-  const level = parts[2];
-  const pixels = width * height;
-  // Roughly: 1080p wants 4.0, 1440p 5.0, 4K 5.1.
-  const guesses =
-    pixels > 3_500_000
-      ? ["51", "52", "50", "60"]
-      : pixels > 2_100_000
-        ? ["50", "51", "41", "40"]
-        : ["40", "41", "31", "30", "50"];
-  const out = level && level !== "00" ? [codec] : [];
-  for (const g of guesses) out.push(`vp09.${profile}.${g}.${depth}`);
-  return out;
-}
 
 /** The codec-private data (avcC / vpcC / …) a decoder needs to start. */
 function descriptionOf(
@@ -86,21 +42,11 @@ function descriptionOf(
   return undefined;
 }
 
-/** Whether this recording could go through the frame-exact exporter at all. */
-export function looksDemuxable(blob: Blob, mimeType: string): boolean {
-  if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") {
-    return false;
-  }
-  if (blob.size > MAX_INPUT_BYTES) return false;
-  const type = (mimeType || blob.type || "").toLowerCase();
-  return type.includes("mp4");
-}
-
 /**
- * Read every encoded video sample out of `blob`, in decode order, along with a
+ * Read every encoded video sample out of an mp4, in decode order, along with a
  * decoder config the browser has already agreed to.
  */
-export async function demuxVideo(blob: Blob): Promise<DemuxedVideo> {
+export async function demuxMp4(blob: Blob): Promise<DemuxedVideo> {
   const { createFile, DataStream } = await import("mp4box");
 
   const file = createFile();
@@ -172,23 +118,12 @@ export async function demuxVideo(blob: Blob): Promise<DemuxedVideo> {
   const duration = (last.timestamp + (last.duration ?? 0)) / 1e6;
   const fps = duration > 0 ? chunks.length / duration : 30;
 
-  let config: VideoDecoderConfig | null = null;
-  for (const codec of codecCandidates(track.codec, width, height)) {
-    const candidate: VideoDecoderConfig = {
-      codec,
-      codedWidth: width,
-      codedHeight: height,
-      description,
-      hardwareAcceleration: "no-preference",
-    };
-    const support = await VideoDecoder.isConfigSupported(candidate).catch(
-      () => null,
-    );
-    if (support?.supported) {
-      config = candidate;
-      break;
-    }
-  }
+  const config = await agreeConfig(
+    codecCandidates(track.codec, width, height),
+    width,
+    height,
+    description,
+  );
   if (!config) {
     throw new Error(`This browser can't decode ${track.codec} frames.`);
   }

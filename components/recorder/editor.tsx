@@ -961,10 +961,14 @@ export function Editor({
       },
     };
     const finish = (blob: Blob, name: string) => {
+      // The export doesn't always come out in the container it was recorded
+      // in — Firefox records WebM, and the frame-exact path writes mp4 — so
+      // the name follows the file rather than where it came from.
+      const named = name.replace(/\.[^.]+$/, `.${fileExtension(blob.type)}`);
       const url = URL.createObjectURL(blob);
-      saveUrl(url, name);
+      saveUrl(url, named);
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      toast.success("Clip saved", { description: name });
+      toast.success("Clip saved", { description: named });
     };
 
     pause();
@@ -1025,21 +1029,26 @@ export function Editor({
         : null;
 
       // Decode the samples straight through WebCodecs where we can: every
-      // frame is rendered exactly once, it runs several times faster than the
-      // clip is long, and the audio comes out as AAC so there's no remux
-      // afterwards. Anything it can't handle falls through to the old path.
+      // frame is rendered exactly once, and it runs several times faster than
+      // the clip is long. Anything it can't handle falls through to the old
+      // path.
       if (canFastExport(recording.blob, recording.mimeType)) {
         try {
+          const fast = await fastExport({
+            blob: recording.blob,
+            mimeType: recording.mimeType,
+            segments: editor.segments,
+            scene,
+            cameraBlob: cameraOn && camera ? camera.blob : null,
+            sound: soundTreatment,
+            onProgress: setProgress,
+          });
+          // Browsers without an AAC encoder leave Opus in the mp4, which
+          // native players won't decode. Converting just the audio is quick —
+          // the video is copied — and it keeps the output the same everywhere.
+          const needsRemux = fast.needsAacRemux && canUseFFmpeg(fast.blob);
           finish(
-            await fastExport({
-              blob: recording.blob,
-              mimeType: recording.mimeType,
-              segments: editor.segments,
-              scene,
-              cameraBlob: cameraOn && camera ? camera.blob : null,
-              sound: soundTreatment,
-              onProgress: setProgress,
-            }),
+            needsRemux ? await toCompatibleMp4(fast.blob, ffCbs) : fast.blob,
             filename,
           );
           return;
