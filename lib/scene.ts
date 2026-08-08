@@ -7,10 +7,11 @@
 // you save.
 
 import type { CameraLayout } from "@/lib/camera-layout";
+import { shade } from "@/lib/color";
 
 export interface FrameStyle {
-  /** Background preset id (see BACKGROUNDS); "none" means the raw video. */
-  background: string;
+  /** What sits behind the recording (see Background); "none" is the raw video. */
+  background: Background;
   /** Inset around the video, as a fraction of the shorter frame edge (0–0.2). */
   padding: number;
   /** Corner radius, as a fraction of the shorter video edge (0–0.2). */
@@ -22,7 +23,7 @@ export interface FrameStyle {
 }
 
 export const DEFAULT_FRAME_STYLE: FrameStyle = {
-  background: "none",
+  background: { kind: "none" },
   padding: 0.06,
   radius: 0.03,
   shadow: 0.5,
@@ -204,75 +205,117 @@ export type SceneContext =
   | CanvasRenderingContext2D
   | OffscreenCanvasRenderingContext2D;
 
-export interface BackgroundPreset {
-  id: string;
-  label: string;
-  /** CSS background value, for the editor preview and swatches. */
-  css: string;
-  /** Paints the same background onto the export canvas. */
-  paint: (ctx: SceneContext, w: number, h: number) => void;
-}
-
-interface GradientStop {
+export interface GradientStop {
+  /** Position along the gradient line, 0–1. */
   offset: number;
   color: string;
 }
 
-// A linear gradient expressed once, rendered identically by CSS and canvas.
-// The CSS angle convention (0deg = up, clockwise) is converted to a canvas
-// gradient line through the centre, long enough to cover the corners.
-function linear(
+/**
+ * What sits behind the recording.
+ *
+ * A value rather than the name of one, so a preset is a starting point you can
+ * take apart instead of a fixed list you have to live within: pick Ocean, drag
+ * the angle, change one of its colours, and it's yours. The presets below are
+ * ordinary values of this type with nothing special about them.
+ */
+export type Background =
+  | { kind: "none" }
+  | { kind: "solid"; color: string }
+  | { kind: "linear"; angle: number; stops: GradientStop[] };
+
+export const NO_BACKGROUND: Background = { kind: "none" };
+
+/** Angles the gradient control snaps between, in CSS degrees. */
+export const GRADIENT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/** How many colours a gradient may carry — two to shape it, three to bend it. */
+export const MIN_STOPS = 2;
+export const MAX_STOPS = 3;
+
+/** CSS background value, for the editor preview and the swatches. */
+export function backgroundCss(bg: Background): string {
+  if (bg.kind === "none") return "transparent";
+  if (bg.kind === "solid") return bg.color;
+  return `linear-gradient(${bg.angle}deg, ${bg.stops
+    .map((s) => `${s.color} ${Math.round(s.offset * 100)}%`)
+    .join(", ")})`;
+}
+
+/**
+ * Paint the same background onto the export canvas.
+ *
+ * The CSS angle convention (0deg points up, and turns clockwise) becomes a
+ * gradient line through the centre, long enough that its ends clear the
+ * corners — so the two renderers agree on every pixel rather than merely
+ * looking similar.
+ */
+export function paintBackground(
+  ctx: SceneContext,
+  bg: Background,
+  w: number,
+  h: number,
+): void {
+  if (bg.kind === "none") return;
+  if (bg.kind === "solid") {
+    ctx.fillStyle = bg.color;
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  const rad = (bg.angle * Math.PI) / 180;
+  const dx = Math.sin(rad);
+  const dy = -Math.cos(rad);
+  const half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
+  const cx = w / 2;
+  const cy = h / 2;
+  const grad = ctx.createLinearGradient(
+    cx - dx * half,
+    cy - dy * half,
+    cx + dx * half,
+    cy + dy * half,
+  );
+  for (const s of bg.stops) grad.addColorStop(clamp(s.offset, 0, 1), s.color);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+}
+
+/** Whether two backgrounds would paint the same picture. */
+export function sameBackground(a: Background, b: Background): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "none") return true;
+  if (a.kind === "solid") return a.color === (b as typeof a).color;
+  const other = b as typeof a;
+  return (
+    a.angle === other.angle &&
+    a.stops.length === other.stops.length &&
+    a.stops.every(
+      (s, i) =>
+        s.color === other.stops[i].color &&
+        Math.abs(s.offset - other.stops[i].offset) < 1e-6,
+    )
+  );
+}
+
+export interface BackgroundPreset {
+  id: string;
+  label: string;
+  value: Background;
+}
+
+const linear = (
   id: string,
   label: string,
   angle: number,
   stops: GradientStop[],
-): BackgroundPreset {
-  const css = `linear-gradient(${angle}deg, ${stops
-    .map((s) => `${s.color} ${Math.round(s.offset * 100)}%`)
-    .join(", ")})`;
-  return {
-    id,
-    label,
-    css,
-    paint: (ctx, w, h) => {
-      const rad = (angle * Math.PI) / 180;
-      const dx = Math.sin(rad);
-      const dy = -Math.cos(rad);
-      const half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
-      const cx = w / 2;
-      const cy = h / 2;
-      const grad = ctx.createLinearGradient(
-        cx - dx * half,
-        cy - dy * half,
-        cx + dx * half,
-        cy + dy * half,
-      );
-      for (const s of stops) grad.addColorStop(s.offset, s.color);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-    },
-  };
-}
+): BackgroundPreset => ({ id, label, value: { kind: "linear", angle, stops } });
 
-function solid(id: string, label: string, color: string): BackgroundPreset {
-  return {
-    id,
-    label,
-    css: color,
-    paint: (ctx, w, h) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(0, 0, w, h);
-    },
-  };
-}
+const solid = (id: string, label: string, color: string): BackgroundPreset => ({
+  id,
+  label,
+  value: { kind: "solid", color },
+});
 
-export const BACKGROUNDS: BackgroundPreset[] = [
-  {
-    id: "none",
-    label: "None",
-    css: "transparent",
-    paint: () => {},
-  },
+export const BACKGROUND_PRESETS: BackgroundPreset[] = [
   linear("ember", "Ember", 135, [
     { offset: 0, color: "#3d100b" },
     { offset: 0.55, color: "#7c241c" },
@@ -299,12 +342,35 @@ export const BACKGROUNDS: BackgroundPreset[] = [
   solid("chalk", "Chalk", "#e9e4d8"),
 ];
 
-export function backgroundById(id: string): BackgroundPreset {
-  return BACKGROUNDS.find((b) => b.id === id) ?? BACKGROUNDS[0];
+/** The preset a background came from, if it's still untouched. */
+export function presetOf(bg: Background): BackgroundPreset | null {
+  return BACKGROUND_PRESETS.find((p) => sameBackground(p.value, bg)) ?? null;
+}
+
+/**
+ * A gradient built from a single colour: the colour itself falling away to a
+ * darker version of the same hue. One pick, and the frame has depth rather
+ * than a flat wall behind it.
+ */
+export function gradientFrom(color: string): Background {
+  return {
+    kind: "linear",
+    angle: 135,
+    stops: [
+      { offset: 0, color },
+      { offset: 1, color: shade(color, 0.55) },
+    ],
+  };
+}
+
+/** Evenly spread whatever stops a gradient has, after one is added or removed. */
+export function spreadStops(stops: GradientStop[]): GradientStop[] {
+  if (stops.length < 2) return stops;
+  return stops.map((s, i) => ({ ...s, offset: i / (stops.length - 1) }));
 }
 
 export function isDefaultFrame(style: FrameStyle): boolean {
-  return style.background === "none" && style.aspect === "source";
+  return style.background.kind === "none" && style.aspect === "source";
 }
 
 /** Whether the scene changes any pixels (and so forces a re-encode). */

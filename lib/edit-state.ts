@@ -17,13 +17,20 @@ import {
   DEFAULT_CURSOR_STYLE,
   type CursorStyle,
 } from "@/lib/cursor-track";
+import { formatHex, parseHex } from "@/lib/color";
 import {
+  BACKGROUND_PRESETS,
   DEFAULT_FRAME_STYLE,
   FULL_CROP,
+  MAX_STOPS,
+  MIN_STOPS,
+  NO_BACKGROUND,
   clampCrop,
   isFullCrop,
+  type Background,
   type CropRegion,
   type FrameStyle,
+  type GradientStop,
   type ZoomRegion,
 } from "@/lib/scene";
 import { DEFAULT_SOUND_STYLE, type SoundStyle } from "@/lib/sound";
@@ -69,6 +76,69 @@ const num = (value: unknown, fallback: number): number =>
 
 const bool = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
+
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, v));
+
+/**
+ * A stored colour, normalised to a hex string — or nothing.
+ *
+ * This value ends up in `ctx.fillStyle` and in a CSS `background`, so it has
+ * to be a colour and not merely a string: anything that isn't one is dropped
+ * rather than handed on.
+ */
+function readColor(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const rgb = parseHex(value);
+  return rgb ? formatHex(rgb) : null;
+}
+
+function readBackground(value: unknown): Background {
+  // Edits saved before backgrounds became values stored a preset's name. The
+  // presets are all still here, so those keep the background they were given.
+  if (typeof value === "string") {
+    return BACKGROUND_PRESETS.find((p) => p.id === value)?.value ?? NO_BACKGROUND;
+  }
+  if (!isObject(value)) return NO_BACKGROUND;
+
+  if (value.kind === "solid") {
+    const color = readColor(value.color);
+    return color ? { kind: "solid", color } : NO_BACKGROUND;
+  }
+
+  if (value.kind === "linear" && Array.isArray(value.stops)) {
+    const stops: GradientStop[] = [];
+    for (const raw of value.stops) {
+      if (!isObject(raw) || stops.length >= MAX_STOPS) continue;
+      const color = readColor(raw.color);
+      if (!color) continue;
+      stops.push({ offset: clamp(num(raw.offset, stops.length), 0, 1), color });
+    }
+    // A gradient needs two colours to be one at all.
+    if (stops.length < MIN_STOPS) return NO_BACKGROUND;
+    const angle = ((Math.round(num(value.angle, 135)) % 360) + 360) % 360;
+    return { kind: "linear", angle, stops };
+  }
+
+  return NO_BACKGROUND;
+}
+
+/**
+ * Read a frame style back from wherever it was kept — the last-used style in
+ * localStorage, or the edit filed beside a recording. Both are data written by
+ * an older version of this code, so every field is checked rather than trusted.
+ */
+export function readFrameStyle(value: unknown): FrameStyle {
+  const raw = isObject(value) ? value : {};
+  return {
+    background: readBackground(raw.background),
+    padding: clamp(num(raw.padding, DEFAULT_FRAME_STYLE.padding), 0, 0.35),
+    radius: clamp(num(raw.radius, DEFAULT_FRAME_STYLE.radius), 0, 0.3),
+    shadow: clamp(num(raw.shadow, DEFAULT_FRAME_STYLE.shadow), 0, 1),
+    aspect:
+      typeof raw.aspect === "string" ? raw.aspect : DEFAULT_FRAME_STYLE.aspect,
+  };
+}
 
 function readSegments(value: unknown, duration: number): Segment[] | null {
   if (!Array.isArray(value) || !value.length) return null;
@@ -122,7 +192,6 @@ export function readEdits(value: unknown, duration: number): EditSnapshot | null
   const segments = readSegments(value.segments, duration);
   if (!segments) return null;
 
-  const frame = isObject(value.frame) ? value.frame : {};
   const cursor = isObject(value.cursor) ? value.cursor : {};
   const sound = isObject(value.sound) ? value.sound : {};
   const camera = isObject(value.camera) ? value.camera : null;
@@ -131,7 +200,7 @@ export function readEdits(value: unknown, duration: number): EditSnapshot | null
     duration,
     segments,
     zooms: readZooms(value.zooms, duration),
-    frame: { ...DEFAULT_FRAME_STYLE, ...frame },
+    frame: readFrameStyle(value.frame),
     // A crop is only meaningful if it's a real rectangle inside the capture;
     // anything else falls back to the whole screen.
     crop: isObject(value.crop)

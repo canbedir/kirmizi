@@ -1,26 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import {
   ASPECTS,
+  BACKGROUND_PRESETS,
   CROP_MIN,
   DEFAULT_FRAME_STYLE,
   FULL_CROP,
+  NO_BACKGROUND,
   ZOOM_MAX_SCALE,
   aspectById,
+  backgroundCss,
   clampCrop,
   cropPixels,
   cropRect,
   cssZoomTransform,
   fitCrop,
   frameSizeFor,
+  gradientFrom,
   isDefaultFrame,
   isFullCrop,
   outputSize,
+  paintBackground,
+  presetOf,
   radiusPx,
+  sameBackground,
   sceneActive,
+  spreadStops,
   videoRect,
   zoomStateAt,
+  type Background,
   type ZoomRegion,
 } from "@/lib/scene";
+
+const EMBER = BACKGROUND_PRESETS.find((p) => p.id === "ember")!.value;
 
 const zoom = (extra: Partial<ZoomRegion> = {}): ZoomRegion => ({
   id: "z",
@@ -226,7 +237,7 @@ describe("what counts as an edit", () => {
   });
 
   test("a background does", () => {
-    expect(sceneActive({ ...DEFAULT_FRAME_STYLE, background: "ember" }, [])).toBe(
+    expect(sceneActive({ ...DEFAULT_FRAME_STYLE, background: EMBER }, [])).toBe(
       true,
     );
   });
@@ -441,5 +452,190 @@ describe("fitCrop", () => {
     expect(rect.y).toBeLessThan(1);
     expect(size.w - rect.w).toBeLessThan(1);
     expect(size.h - rect.h).toBeLessThan(1);
+  });
+});
+
+describe("backgrounds", () => {
+  test("a preset is an ordinary value, so it can be taken apart", () => {
+    // The whole point of holding backgrounds as values: a preset is a
+    // starting point, not a name you're stuck inside.
+    const ocean = BACKGROUND_PRESETS.find((p) => p.id === "ocean")!.value;
+    expect(presetOf(ocean)?.id).toBe("ocean");
+    expect(ocean.kind).toBe("linear");
+
+    const turned = { ...(ocean as { kind: "linear"; angle: number; stops: [] }), angle: 90 };
+    expect(presetOf(turned)).toBeNull();
+  });
+
+  test("css says what the preview will paint", () => {
+    expect(backgroundCss(NO_BACKGROUND)).toBe("transparent");
+    expect(backgroundCss({ kind: "solid", color: "#16130f" })).toBe("#16130f");
+    expect(
+      backgroundCss({
+        kind: "linear",
+        angle: 135,
+        stops: [
+          { offset: 0, color: "#000000" },
+          { offset: 1, color: "#ffffff" },
+        ],
+      }),
+    ).toBe("linear-gradient(135deg, #000000 0%, #ffffff 100%)");
+  });
+
+  test("two backgrounds are the same when they'd paint the same", () => {
+    const a: Background = {
+      kind: "linear",
+      angle: 90,
+      stops: [
+        { offset: 0, color: "#111111" },
+        { offset: 1, color: "#222222" },
+      ],
+    };
+    expect(sameBackground(a, { ...a, stops: [...a.stops] })).toBe(true);
+    expect(sameBackground(a, { ...a, angle: 91 })).toBe(false);
+    expect(sameBackground(a, NO_BACKGROUND)).toBe(false);
+    expect(sameBackground(NO_BACKGROUND, NO_BACKGROUND)).toBe(true);
+    expect(
+      sameBackground(a, { kind: "solid", color: "#111111" }),
+    ).toBe(false);
+  });
+
+  test("one colour becomes a gradient into a darker version of itself", () => {
+    const bg = gradientFrom("#3080c0");
+    expect(bg.kind).toBe("linear");
+    if (bg.kind !== "linear") throw new Error("unreachable");
+    expect(bg.stops.length).toBe(2);
+    expect(bg.stops[0].color).toBe("#3080c0");
+    expect(bg.stops[0].offset).toBe(0);
+    expect(bg.stops[1].offset).toBe(1);
+    expect(bg.stops[1].color).not.toBe(bg.stops[0].color);
+  });
+
+  test("spreading stops puts the ends where a gradient's ends belong", () => {
+    const spread = spreadStops([
+      { offset: 0.3, color: "#000000" },
+      { offset: 0.4, color: "#888888" },
+      { offset: 0.9, color: "#ffffff" },
+    ]);
+    expect(spread.map((s) => s.offset)).toEqual([0, 0.5, 1]);
+    expect(spread.map((s) => s.color)).toEqual(["#000000", "#888888", "#ffffff"]);
+  });
+
+  test("a background is what makes a frame worth re-encoding", () => {
+    expect(isDefaultFrame({ ...DEFAULT_FRAME_STYLE, background: NO_BACKGROUND })).toBe(
+      true,
+    );
+    expect(
+      isDefaultFrame({
+        ...DEFAULT_FRAME_STYLE,
+        background: { kind: "solid", color: "#000000" },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("painting a background the way CSS would", () => {
+  // The preview is a CSS gradient and the export is a canvas one. They only
+  // agree if the canvas puts the gradient line exactly where CSS defines it:
+  // through the centre, at the given angle, long enough that its ends are
+  // where the first and last colours land.
+  function recorder() {
+    const calls = {
+      gradients: [] as number[][],
+      stops: [] as [number, string][],
+      fills: [] as number[],
+      fillStyle: null as unknown,
+    };
+    const ctx = {
+      createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
+        calls.gradients.push([x0, y0, x1, y1]);
+        return {
+          addColorStop: (offset: number, color: string) =>
+            calls.stops.push([offset, color]),
+        };
+      },
+      fillRect(x: number, y: number, w: number, h: number) {
+        calls.fills.push(x, y, w, h);
+      },
+      set fillStyle(value: unknown) {
+        calls.fillStyle = value;
+      },
+    };
+    return { ctx: ctx as unknown as Parameters<typeof paintBackground>[0], calls };
+  }
+
+  const ramp = (angle: number): Background => ({
+    kind: "linear",
+    angle,
+    stops: [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#ffffff" },
+    ],
+  });
+
+  test("0deg runs bottom to top, as CSS does", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, ramp(0), 200, 100);
+    expect(calls.gradients[0].map((v) => Math.round(v) || 0)).toEqual([100, 100, 100, 0]);
+  });
+
+  test("90deg runs left to right", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, ramp(90), 200, 100);
+    expect(calls.gradients[0].map((v) => Math.round(v) || 0)).toEqual([0, 50, 200, 50]);
+  });
+
+  test("180deg runs top to bottom", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, ramp(180), 200, 100);
+    expect(calls.gradients[0].map((v) => Math.round(v) || 0)).toEqual([100, 0, 100, 100]);
+  });
+
+  test("on a square, 135deg lands exactly on the corners", () => {
+    // The case that catches a sign error or a half-length mistake: CSS puts
+    // the ends of a 135deg gradient on the corners of a square, nowhere else.
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, ramp(135), 100, 100);
+    expect(calls.gradients[0].map((v) => Math.round(v) || 0)).toEqual([0, 0, 100, 100]);
+  });
+
+  test("the line is long enough to reach past the corners of a wide frame", () => {
+    // CSS defines the length as |W·sinA| + |H·cosA|.
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, ramp(135), 1920, 1080);
+    const [x0, y0, x1, y1] = calls.gradients[0];
+    const spec =
+      Math.abs(1920 * Math.sin((135 * Math.PI) / 180)) +
+      Math.abs(1080 * Math.cos((135 * Math.PI) / 180));
+    expect(Math.hypot(x1 - x0, y1 - y0)).toBeCloseTo(spec, 6);
+    // ...and centred on the frame, so neither end runs long.
+    expect((x0 + x1) / 2).toBeCloseTo(960, 6);
+    expect((y0 + y1) / 2).toBeCloseTo(540, 6);
+  });
+
+  test("every colour reaches the canvas, at the offset it was given", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, BACKGROUND_PRESETS.find((p) => p.id === "ember")!.value, 100, 100);
+    expect(calls.stops).toEqual([
+      [0, "#3d100b"],
+      [0.55, "#7c241c"],
+      [1, "#1a0c0a"],
+    ]);
+    expect(calls.fills).toEqual([0, 0, 100, 100]);
+  });
+
+  test("a flat colour covers the frame and nothing else happens", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, { kind: "solid", color: "#16130f" }, 640, 360);
+    expect(calls.fillStyle).toBe("#16130f");
+    expect(calls.fills).toEqual([0, 0, 640, 360]);
+    expect(calls.gradients).toEqual([]);
+  });
+
+  test("no background paints nothing at all", () => {
+    const { ctx, calls } = recorder();
+    paintBackground(ctx, NO_BACKGROUND, 640, 360);
+    expect(calls.fills).toEqual([]);
+    expect(calls.gradients).toEqual([]);
   });
 });

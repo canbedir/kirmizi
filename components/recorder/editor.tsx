@@ -28,7 +28,7 @@ import { generateThumbnails } from "@/lib/thumbnails";
 import {
   DEFAULT_FRAME_STYLE,
   ZOOM_MAX_SCALE,
-  backgroundById,
+  backgroundCss,
   cameraGeometry,
   cropRect,
   cssZoomTransform,
@@ -60,6 +60,7 @@ import {
   type SceneCursor,
 } from "@/lib/render-scene";
 import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
+import { palette } from "@/lib/color";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -76,6 +77,7 @@ import {
   isUntouched,
   packEdits,
   readEdits,
+  readFrameStyle,
   type EditSnapshot,
 } from "@/lib/edit-state";
 import { useAudioAnalysis } from "@/lib/use-audio-analysis";
@@ -117,7 +119,7 @@ function loadFrameStyle(): FrameStyle {
   if (typeof window === "undefined") return DEFAULT_FRAME_STYLE;
   try {
     const raw = localStorage.getItem(FRAME_STYLE_KEY);
-    if (raw) return { ...DEFAULT_FRAME_STYLE, ...JSON.parse(raw) };
+    if (raw) return readFrameStyle(JSON.parse(raw));
   } catch {
     /* corrupted styles fall back to the default */
   }
@@ -731,9 +733,35 @@ export function Editor({
   const dotDragRef = useRef(false);
   const dotDirtyRef = useRef(false);
 
+  /**
+   * The colours in the frame showing right now, for the background picker to
+   * offer. Drawn small on purpose: the point is what the clip is mostly made
+   * of, and a thumbnail answers that as well as a full frame would for a
+   * fraction of the work.
+   */
+  const sampleColors = useCallback((): string[] => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) return [];
+    const w = 64;
+    const h = Math.max(1, Math.round((w * video.videoHeight) / video.videoWidth));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return [];
+    try {
+      ctx.drawImage(video, 0, 0, w, h);
+      return palette(ctx.getImageData(0, 0, w, h).data, 5);
+    } catch {
+      // A frame that can't be read is one fewer convenience, not an error.
+      return [];
+    }
+  }, []);
+
   const cropped = !isFullCrop(shownCrop);
-  const styled = frameStyle.background !== "none" && dims.w > 0 && dims.h > 0;
-  const bg = backgroundById(frameStyle.background);
+  const styled =
+    frameStyle.background.kind !== "none" && dims.w > 0 && dims.h > 0;
+  const bgCss = backgroundCss(frameStyle.background);
   // The stage is the exported frame, which isn't always the capture's shape.
   const frame = useMemo(
     () => frameSizeFor(dims.w, dims.h, shownCrop, frameStyle.aspect),
@@ -1102,7 +1130,7 @@ export function Editor({
             framed
               ? {
                   aspectRatio: `${frame.w} / ${frame.h}`,
-                  background: styled ? bg.css : "#000",
+                  background: styled ? bgCss : "#000",
                 }
               : undefined
           }
@@ -1438,6 +1466,7 @@ export function Editor({
               setCrop(clampCrop(next));
               if (isFullCrop(next)) setCropping(false);
             }}
+            sampleColors={sampleColors}
           />
 
           <SoundPanel

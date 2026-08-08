@@ -3,13 +3,22 @@ import {
   isUntouched,
   packEdits,
   readEdits,
+  readFrameStyle,
   type EditSnapshot,
 } from "@/lib/edit-state";
 import { DEFAULT_CURSOR_STYLE } from "@/lib/cursor-track";
-import { DEFAULT_FRAME_STYLE, FULL_CROP } from "@/lib/scene";
+import {
+  BACKGROUND_PRESETS,
+  DEFAULT_FRAME_STYLE,
+  FULL_CROP,
+  MAX_STOPS,
+  NO_BACKGROUND,
+} from "@/lib/scene";
 import { DEFAULT_SOUND_STYLE } from "@/lib/sound";
 
 const D = 12;
+
+const EMBER = BACKGROUND_PRESETS.find((p) => p.id === "ember")!.value;
 
 const snapshot = (extra: Partial<EditSnapshot> = {}): EditSnapshot => ({
   duration: D,
@@ -37,7 +46,7 @@ describe("a round trip", () => {
         { id: "b", start: 7, end: D, muted: false, speed: 1 },
       ],
       zooms: [{ id: "z", start: 1, end: 3, x: 0.4, y: 0.6, scale: 2.2, auto: true }],
-      frame: { ...DEFAULT_FRAME_STYLE, background: "ember", aspect: "9:16" },
+      frame: { ...DEFAULT_FRAME_STYLE, background: EMBER, aspect: "9:16" },
       sound: { normalise: false, rumble: true },
     });
     const after = readEdits(packEdits(before), D);
@@ -104,7 +113,7 @@ describe("filling in what's missing", () => {
     const stored = packEdits(snapshot()) as unknown as Record<string, unknown>;
     stored.frame = { background: "ember" }; // no padding, radius, shadow, aspect
     const after = readEdits(stored, D);
-    expect(after!.frame.background).toBe("ember");
+    expect(after!.frame.background).toEqual(EMBER);
     expect(after!.frame.aspect).toBe(DEFAULT_FRAME_STYLE.aspect);
     expect(after!.frame.padding).toBe(DEFAULT_FRAME_STYLE.padding);
   });
@@ -175,7 +184,7 @@ describe("what isn't worth remembering", () => {
     ).toBe(false);
     expect(
       isUntouched(
-        snapshot({ frame: { ...DEFAULT_FRAME_STYLE, background: "ember" } }),
+        snapshot({ frame: { ...DEFAULT_FRAME_STYLE, background: EMBER } }),
         DEFAULTS,
       ),
     ).toBe(false);
@@ -230,5 +239,115 @@ describe("the crop travels too", () => {
   test("and a crop counts as work worth remembering", () => {
     expect(isUntouched(snapshot({ crop: half }), DEFAULTS)).toBe(false);
     expect(isUntouched(snapshot({ crop: FULL_CROP }), DEFAULTS)).toBe(true);
+  });
+});
+
+describe("reading a frame style back", () => {
+  test("an edit saved when backgrounds were named keeps its background", () => {
+    // Every stored edit in the wild holds a preset's name here.
+    expect(readFrameStyle({ background: "ember" }).background).toEqual(EMBER);
+    expect(readFrameStyle({ background: "chalk" }).background).toEqual({
+      kind: "solid",
+      color: "#e9e4d8",
+    });
+    expect(readFrameStyle({ background: "none" }).background).toEqual(NO_BACKGROUND);
+  });
+
+  test("a name that no longer exists leaves the recording alone", () => {
+    expect(readFrameStyle({ background: "midnight" }).background).toEqual(
+      NO_BACKGROUND,
+    );
+  });
+
+  test("a colour someone built comes back as they left it", () => {
+    const built = {
+      kind: "linear" as const,
+      angle: 45,
+      stops: [
+        { offset: 0, color: "#112233" },
+        { offset: 1, color: "#445566" },
+      ],
+    };
+    expect(readFrameStyle({ background: built }).background).toEqual(built);
+    expect(
+      readFrameStyle({ background: { kind: "solid", color: "#abc" } }).background,
+    ).toEqual({ kind: "solid", color: "#aabbcc" });
+  });
+
+  test("anything that isn't a colour is refused, not passed on", () => {
+    // This string reaches ctx.fillStyle and a CSS background, so it has to be
+    // a colour rather than merely a string.
+    for (const color of ["red", "url(evil)", "", "#12345", 42, null]) {
+      expect(
+        readFrameStyle({ background: { kind: "solid", color } }).background,
+      ).toEqual(NO_BACKGROUND);
+    }
+  });
+
+  test("a gradient without two colours isn't one", () => {
+    expect(
+      readFrameStyle({
+        background: { kind: "linear", angle: 0, stops: [{ offset: 0, color: "#fff" }] },
+      }).background,
+    ).toEqual(NO_BACKGROUND);
+    expect(
+      readFrameStyle({ background: { kind: "linear", angle: 0, stops: "no" } })
+        .background,
+    ).toEqual(NO_BACKGROUND);
+  });
+
+  test("more colours than a gradient takes are dropped, not kept", () => {
+    const bg = readFrameStyle({
+      background: {
+        kind: "linear",
+        angle: 0,
+        stops: [
+          { offset: 0, color: "#000000" },
+          { offset: 0.3, color: "#333333" },
+          { offset: 0.6, color: "#666666" },
+          { offset: 1, color: "#ffffff" },
+        ],
+      },
+    }).background;
+    expect(bg.kind).toBe("linear");
+    if (bg.kind !== "linear") throw new Error("unreachable");
+    expect(bg.stops.length).toBe(MAX_STOPS);
+  });
+
+  test("an angle is wrapped rather than left where it can't be drawn", () => {
+    const at = (angle: unknown) => {
+      const bg = readFrameStyle({
+        background: {
+          kind: "linear",
+          angle,
+          stops: [
+            { offset: 0, color: "#000000" },
+            { offset: 1, color: "#ffffff" },
+          ],
+        },
+      }).background;
+      return bg.kind === "linear" ? bg.angle : null;
+    };
+    expect(at(405)).toBe(45);
+    expect(at(-90)).toBe(270);
+    expect(at("sideways")).toBe(135);
+  });
+
+  test("the sliders are held to the range the panel offers", () => {
+    const style = readFrameStyle({
+      padding: 99,
+      radius: -1,
+      shadow: "loud",
+      aspect: 7,
+    });
+    expect(style.padding).toBe(0.35);
+    expect(style.radius).toBe(0);
+    expect(style.shadow).toBe(DEFAULT_FRAME_STYLE.shadow);
+    expect(style.aspect).toBe(DEFAULT_FRAME_STYLE.aspect);
+  });
+
+  test("nothing at all is the default frame", () => {
+    expect(readFrameStyle(undefined)).toEqual(DEFAULT_FRAME_STYLE);
+    expect(readFrameStyle("rubbish")).toEqual(DEFAULT_FRAME_STYLE);
   });
 });

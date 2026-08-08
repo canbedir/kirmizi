@@ -6,10 +6,10 @@
 // with CSS. Fully client-side.
 
 import {
-  backgroundById,
   cameraGeometry,
   cropPixels,
   cropRect,
+  paintBackground,
   radiusPx,
   videoRect,
   zoomStateAt,
@@ -284,14 +284,14 @@ export function drawSceneFrame(
   cam?: SceneImage | null,
 ) {
   const { w: frameW, h: frameH, sourceW, sourceH } = size;
-  const bg = backgroundById(scene.style.background);
-  const styled = bg.id !== "none";
+  const bg = scene.style.background;
+  const styled = bg.kind !== "none";
 
-  // Background. With the "none" preset and the capture's own shape the video
-  // covers the whole frame, but paint black anyway so nothing shows through
-  // at the edges of a reframed export.
+  // Background. With no background chosen and the capture's own shape the
+  // video covers the whole frame, but paint black anyway so nothing shows
+  // through at the edges of a reframed export.
   if (styled) {
-    bg.paint(ctx, frameW, frameH);
+    paintBackground(ctx, bg, frameW, frameH);
   } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, frameW, frameH);

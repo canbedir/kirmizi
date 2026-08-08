@@ -1,19 +1,26 @@
 "use client";
 
-import { Ban, Crop, RotateCcw } from "lucide-react";
+import { useState } from "react";
+import { Ban, Crop, Pipette, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   ASPECTS,
-  BACKGROUNDS,
+  BACKGROUND_PRESETS,
   FULL_CROP,
+  NO_BACKGROUND,
   aspectById,
+  backgroundCss,
   fitCrop,
   isFullCrop,
+  presetOf,
+  sameBackground,
+  type Background,
   type CropRegion,
   type FrameStyle,
 } from "@/lib/scene";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
+import { BackgroundEditor } from "@/components/recorder/background-editor";
 
 // Styling controls for the frame drawn around the recording: background
 // preset swatches plus padding / corner / shadow sliders. Purely local state
@@ -80,6 +87,9 @@ function AspectMark({ ratio }: { ratio: number | null }) {
   );
 }
 
+/** Where a custom background starts from, when there's nothing to start from. */
+const FIRST_CUSTOM: Background = { kind: "solid", color: "#1d4ed8" };
+
 export function FramePanel({
   style,
   onChange,
@@ -88,6 +98,7 @@ export function FramePanel({
   source,
   onToggleCrop,
   onCrop,
+  sampleColors,
 }: {
   style: FrameStyle;
   onChange: (style: FrameStyle) => void;
@@ -97,10 +108,29 @@ export function FramePanel({
   source: { w: number; h: number };
   onToggleCrop: () => void;
   onCrop: (crop: CropRegion) => void;
+  /** The colours in the frame on screen right now, for the picker to offer. */
+  sampleColors?: () => string[];
 }) {
-  const plain = style.background === "none";
+  const plain = style.background.kind === "none";
   const aspect = aspectById(style.aspect);
   const cropped = !isFullCrop(crop);
+
+  const [editing, setEditing] = useState(false);
+  const [sampled, setSampled] = useState<string[]>([]);
+  const preset = presetOf(style.background);
+  // A background that matches none of the presets is one the user built.
+  const custom = !plain && !preset;
+
+  const setBackground = (background: Background) =>
+    onChange({ ...style, background });
+
+  const openEditor = () => {
+    // Sampled when the panel opens rather than continuously: these are the
+    // colours of the frame you're looking at, which is the useful moment.
+    setSampled(sampleColors?.() ?? []);
+    if (plain) setBackground(FIRST_CUSTOM);
+    setEditing(true);
+  };
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
@@ -108,8 +138,28 @@ export function FramePanel({
         <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           Frame
         </span>
-        {BACKGROUNDS.map((bg) => {
-          const active = style.background === bg.id;
+
+        <button
+          type="button"
+          title="None"
+          aria-label="Background: none"
+          aria-pressed={plain}
+          onClick={() => {
+            setBackground(NO_BACKGROUND);
+            setEditing(false);
+          }}
+          className={cn(
+            "grid size-7 place-items-center rounded-md border transition-shadow",
+            plain
+              ? "border-red ring-2 ring-red/40"
+              : "border-border hover:border-foreground/40",
+          )}
+        >
+          <Ban className="size-3.5 text-muted-foreground" />
+        </button>
+
+        {BACKGROUND_PRESETS.map((bg) => {
+          const active = sameBackground(style.background, bg.value);
           return (
             <button
               key={bg.id}
@@ -117,24 +167,57 @@ export function FramePanel({
               title={bg.label}
               aria-label={`Background: ${bg.label}`}
               aria-pressed={active}
-              onClick={() => onChange({ ...style, background: bg.id })}
+              onClick={() => setBackground(bg.value)}
               className={cn(
-                "grid size-7 place-items-center rounded-md border transition-shadow",
+                "size-7 rounded-md border transition-shadow",
                 active
                   ? "border-red ring-2 ring-red/40"
                   : "border-border hover:border-foreground/40",
               )}
-              style={
-                bg.id === "none" ? undefined : { background: bg.css }
-              }
-            >
-              {bg.id === "none" && (
-                <Ban className="size-3.5 text-muted-foreground" />
-              )}
-            </button>
+              style={{ background: backgroundCss(bg.value) }}
+            />
           );
         })}
+
+        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+
+        <button
+          type="button"
+          aria-label="Make your own background"
+          // Two things at once, said separately: pressed is what's in force —
+          // the same question the preset swatches answer — and expanded is
+          // whether the controls for it are showing.
+          aria-pressed={custom}
+          aria-expanded={editing}
+          title={plain ? "Make your own background" : "Change these colours"}
+          onClick={() => (editing ? setEditing(false) : openEditor())}
+          className={cn(
+            "grid size-7 place-items-center rounded-md border transition-shadow",
+            editing || custom
+              ? "border-red ring-2 ring-red/40"
+              : "border-border hover:border-foreground/40",
+          )}
+          style={custom ? { background: backgroundCss(style.background) } : undefined}
+        >
+          {!custom && <Pipette className="size-3.5 text-muted-foreground" />}
+        </button>
+
+        <span className="ml-1 font-mono text-[11px] text-muted-foreground/70">
+          {editing
+            ? "any colour — add a second for a gradient"
+            : custom
+              ? "your own"
+              : (preset?.label.toLowerCase() ?? "")}
+        </span>
       </div>
+
+      {editing && (
+        <BackgroundEditor
+          value={style.background}
+          onChange={setBackground}
+          suggestions={sampled}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
