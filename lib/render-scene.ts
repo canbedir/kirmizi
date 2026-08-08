@@ -81,6 +81,8 @@ export interface Scene {
   zooms: ZoomRegion[];
   /** Marks drawn on top of the recording that were never on the screen. */
   annotations?: Annotation[] | null;
+  /** The decoded background picture, when the frame is one. */
+  backgroundPicture?: CanvasImageSource | null;
   /** Present when a webcam bubble should be composited over the video. */
   camera?: SceneCamera | null;
   /** Present when a synthetic cursor should be drawn over the video. */
@@ -453,7 +455,7 @@ export function drawSceneFrame(
   // video covers the whole frame, but paint black anyway so nothing shows
   // through at the edges of a reframed export.
   if (styled) {
-    paintBackground(ctx, bg, frameW, frameH);
+    paintBackground(ctx, bg, frameW, frameH, scene.backgroundPicture);
   } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, frameW, frameH);

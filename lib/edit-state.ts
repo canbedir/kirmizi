@@ -26,6 +26,7 @@ import {
   type AnnotationKind,
 } from "@/lib/annotate";
 import { formatHex, parseHex } from "@/lib/color";
+import { isSafePictureSrc } from "@/lib/picture";
 import {
   BACKGROUND_PRESETS,
   DEFAULT_FRAME_STYLE,
@@ -114,6 +115,14 @@ function readBackground(value: unknown): Background {
   if (value.kind === "solid") {
     const color = readColor(value.color);
     return color ? { kind: "solid", color } : NO_BACKGROUND;
+  }
+
+  if (value.kind === "image") {
+    // Only a picture carried inline. Anything naming an address would have
+    // the editor fetch it on open, which this app doesn't do.
+    return isSafePictureSrc(value.src)
+      ? { kind: "image", src: value.src }
+      : NO_BACKGROUND;
   }
 
   if (value.kind === "linear" && Array.isArray(value.stops)) {

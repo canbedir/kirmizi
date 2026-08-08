@@ -80,7 +80,12 @@ export function newAnnotation(
   }[kind];
 
   return {
-    id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    // Four random characters collide about once in a hundred runs of adding
+    // a couple of hundred marks — rare enough to be a mystery when it happens.
+    id:
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`,
     kind,
     start,
     end: Math.max(start + ANNOTATION_MIN_LENGTH, end),

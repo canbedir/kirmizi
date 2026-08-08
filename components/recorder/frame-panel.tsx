@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Ban, Crop, Pipette, RotateCcw } from "lucide-react";
+import { Ban, Crop, Image as ImageIcon, Loader2, Pipette, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/cn";
 import {
   ASPECTS,
@@ -21,6 +22,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { BackgroundEditor } from "@/components/recorder/background-editor";
+import { prepareBackgroundPicture } from "@/lib/picture";
 
 // Styling controls for the frame drawn around the recording: background
 // preset swatches plus padding / corner / shadow sliders. Purely local state
@@ -116,19 +118,24 @@ export function FramePanel({
   const cropped = !isFullCrop(crop);
 
   const [editing, setEditing] = useState(false);
+  const [loadingPicture, setLoadingPicture] = useState(false);
   const [sampled, setSampled] = useState<string[]>([]);
+  // Held as the narrowed value, not a flag: the src is needed a few lines on.
+  const picture =
+    style.background.kind === "image" ? style.background : null;
   const preset = presetOf(style.background);
   // A background that matches none of the presets is one the user built.
-  const custom = !plain && !preset;
+  const custom = !plain && !preset && !picture;
 
   const setBackground = (background: Background) =>
     onChange({ ...style, background });
 
   const openEditor = () => {
+    // A picture isn't made of colours, so the colour editor starts from one.
     // Sampled when the panel opens rather than continuously: these are the
     // colours of the frame you're looking at, which is the useful moment.
     setSampled(sampleColors?.() ?? []);
-    if (plain) setBackground(FIRST_CUSTOM);
+    if (plain || picture) setBackground(FIRST_CUSTOM);
     setEditing(true);
   };
 
@@ -202,14 +209,67 @@ export function FramePanel({
           {!custom && <Pipette className="size-3.5 text-muted-foreground" />}
         </button>
 
+        <label
+          title="Use a picture"
+          className={cn(
+            "grid size-7 cursor-pointer place-items-center rounded-md border bg-cover bg-center transition-shadow",
+            picture
+              ? "border-red ring-2 ring-red/40"
+              : "border-border hover:border-foreground/40",
+          )}
+          style={
+            picture ? { backgroundImage: `url("${picture.src}")` } : undefined
+          }
+        >
+          {!picture && <ImageIcon className="size-3.5 text-muted-foreground" />}
+          <span className="sr-only">Use a picture as the background</span>
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              // Cleared straight away, so choosing the same file twice in a
+              // row still fires a change.
+              event.target.value = "";
+              if (!file) return;
+              setLoadingPicture(true);
+              try {
+                const src = await prepareBackgroundPicture(file);
+                setBackground({ kind: "image", src });
+                setEditing(false);
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "That picture couldn't be used.",
+                );
+              } finally {
+                setLoadingPicture(false);
+              }
+            }}
+          />
+        </label>
+
         <span className="ml-1 font-mono text-[11px] text-muted-foreground/70">
-          {editing
-            ? "any colour — add a second for a gradient"
-            : custom
-              ? "your own"
-              : (preset?.label.toLowerCase() ?? "")}
+          {loadingPicture
+            ? "reading the picture…"
+            : editing
+              ? "any colour — add a second for a gradient"
+              : picture
+                ? "your picture"
+                : custom
+                  ? "your own"
+                  : (preset?.label.toLowerCase() ?? "")}
         </span>
       </div>
+
+      {loadingPicture && (
+        <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" />
+          shrinking it to something the edit can carry
+        </span>
+      )}
 
       {editing && (
         <BackgroundEditor

@@ -10,6 +10,7 @@ import {
   aspectById,
   backgroundCss,
   clampCrop,
+  coverRect,
   cropPixels,
   cropRect,
   cssZoomTransform,
@@ -637,5 +638,63 @@ describe("painting a background the way CSS would", () => {
     paintBackground(ctx, NO_BACKGROUND, 640, 360);
     expect(calls.fills).toEqual([]);
     expect(calls.gradients).toEqual([]);
+  });
+});
+
+describe("a picture as the background", () => {
+  const PIC = "data:image/jpeg;base64,AAAA";
+  const bg: Background = { kind: "image", src: PIC };
+
+  test("the preview covers the frame with it, on black", () => {
+    // Black underneath so a picture that hasn't decoded leaves a frame that's
+    // deliberately empty rather than see-through.
+    expect(backgroundCss(bg)).toBe(`#000 url("${PIC}") center / cover no-repeat`);
+  });
+
+  test("two are the same when they're the same picture", () => {
+    expect(sameBackground(bg, { kind: "image", src: PIC })).toBe(true);
+    expect(sameBackground(bg, { kind: "image", src: "data:image/png;base64,B" })).toBe(
+      false,
+    );
+    expect(sameBackground(bg, NO_BACKGROUND)).toBe(false);
+    expect(presetOf(bg)).toBeNull();
+  });
+
+  test("a picture is a frame worth re-encoding for", () => {
+    expect(isDefaultFrame({ ...DEFAULT_FRAME_STYLE, background: bg })).toBe(false);
+  });
+});
+
+describe("coverRect", () => {
+  test("a wide picture in a square frame overflows sideways, evenly", () => {
+    const at = coverRect(1920, 1080, 1000, 1000);
+    expect(at.h).toBeCloseTo(1000, 6);
+    expect(at.w).toBeCloseTo(1000 * (1920 / 1080), 6);
+    expect(at.y).toBeCloseTo(0, 6);
+    // Whatever spills over is shared between the two sides.
+    expect(at.x).toBeCloseTo((1000 - at.w) / 2, 6);
+  });
+
+  test("a tall picture in a wide frame overflows up and down", () => {
+    const at = coverRect(1080, 1920, 1920, 1080);
+    expect(at.w).toBeCloseTo(1920, 6);
+    expect(at.x).toBeCloseTo(0, 6);
+    expect(at.y).toBeCloseTo((1080 - at.h) / 2, 6);
+  });
+
+  test("the frame is always covered, whatever the shapes", () => {
+    for (const [sw, sh] of [[1920, 1080], [1080, 1920], [100, 100], [3000, 200]]) {
+      for (const [dw, dh] of [[1920, 1080], [1080, 1920], [800, 800]]) {
+        const at = coverRect(sw, sh, dw, dh);
+        expect(at.w).toBeGreaterThanOrEqual(dw - 1e-6);
+        expect(at.h).toBeGreaterThanOrEqual(dh - 1e-6);
+        expect(at.x).toBeLessThanOrEqual(1e-6);
+        expect(at.y).toBeLessThanOrEqual(1e-6);
+      }
+    }
+  });
+
+  test("a picture with no size doesn't produce a broken rect", () => {
+    expect(coverRect(0, 0, 640, 360)).toEqual({ x: 0, y: 0, w: 640, h: 360 });
   });
 });

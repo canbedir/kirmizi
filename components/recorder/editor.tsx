@@ -37,6 +37,7 @@ import {
   cropPixels,
   frameSizeFor,
   isFullCrop,
+  NO_BACKGROUND,
   radiusPx,
   sceneActive,
   videoRect,
@@ -70,6 +71,7 @@ import {
 } from "@/lib/annotate";
 import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
 import { palette } from "@/lib/color";
+import { loadPicture } from "@/lib/picture";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -224,6 +226,7 @@ export function Editor({
     if (gain) gain.gain.value = soundTreatment.gain;
   }, [soundTreatment.gain]);
 
+
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -232,6 +235,7 @@ export function Editor({
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [dims, setDims] = useState({ w: 0, h: 0 });
   const [frameStyle, setFrameStyle] = useState<FrameStyle>(loadFrameStyle);
+
   // What of the capture is being exported. Per recording, not a preference —
   // a crop means nothing to the next take.
   const [crop, setCrop] = useState<CropRegion>(FULL_CROP);
@@ -407,7 +411,14 @@ export function Editor({
   function applyFrameStyle(style: FrameStyle) {
     setFrameStyle(style);
     try {
-      localStorage.setItem(FRAME_STYLE_KEY, JSON.stringify(style));
+      // This key remembers how you like your frames, and a picture isn't that
+      // — it belongs to the one recording, where the edit already keeps it.
+      // Leaving it out also stops a slider drag writing a megabyte per step.
+      const remembered: FrameStyle =
+        style.background.kind === "image"
+          ? { ...style, background: NO_BACKGROUND }
+          : style;
+      localStorage.setItem(FRAME_STYLE_KEY, JSON.stringify(remembered));
     } catch {
       /* persistence is best-effort */
     }
@@ -1198,12 +1209,21 @@ export function Editor({
 
       // Re-encode: speed/mute/scene edits, oversized recordings, or a
       // failed trim.
+      //
+      // A background picture is decoded here rather than kept ready: it is
+      // only ever wanted at this moment, and a frame being drawn can't wait
+      // on a decode however local it is.
+      const backgroundPicture =
+        frameStyle.background.kind === "image"
+          ? await loadPicture(frameStyle.background.src)
+          : null;
       const scene = hasScene
         ? {
             style: frameStyle,
             crop,
             zooms: editor.zooms,
             annotations: editor.annotations,
+            backgroundPicture,
             camera:
               cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
             cursor: sceneCursor,

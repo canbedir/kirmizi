@@ -222,7 +222,16 @@ export interface GradientStop {
 export type Background =
   | { kind: "none" }
   | { kind: "solid"; color: string }
-  | { kind: "linear"; angle: number; stops: GradientStop[] };
+  | { kind: "linear"; angle: number; stops: GradientStop[] }
+  /**
+   * A picture, held as a data URL rather than a link to one.
+   *
+   * Nothing in a saved edit may point at a server: this app's whole claim is
+   * that a recording never leaves the machine, and a background that fetched
+   * itself on open would quietly break that. Pictures are shrunk on the way in
+   * so carrying them inline stays cheap — see lib/picture.ts.
+   */
+  | { kind: "image"; src: string };
 
 export const NO_BACKGROUND: Background = { kind: "none" };
 
@@ -237,9 +246,32 @@ export const MAX_STOPS = 3;
 export function backgroundCss(bg: Background): string {
   if (bg.kind === "none") return "transparent";
   if (bg.kind === "solid") return bg.color;
+  if (bg.kind === "image") {
+    // Quoted: a data URL carries characters that an unquoted url() would end
+    // the token on.
+    return `#000 url("${bg.src}") center / cover no-repeat`;
+  }
   return `linear-gradient(${bg.angle}deg, ${bg.stops
     .map((s) => `${s.color} ${Math.round(s.offset * 100)}%`)
     .join(", ")})`;
+}
+
+/**
+ * Where a picture of `sw`×`sh` goes to cover a `dw`×`dh` frame: scaled by
+ * whichever axis needs the most, and centred, so the overflow is shared
+ * between the two sides rather than all falling off one.
+ */
+export function coverRect(
+  sw: number,
+  sh: number,
+  dw: number,
+  dh: number,
+): Rect {
+  if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: dw, h: dh };
+  const scale = Math.max(dw / sw, dh / sh);
+  const w = sw * scale;
+  const h = sh * scale;
+  return { x: (dw - w) / 2, y: (dh - h) / 2, w, h };
 }
 
 /**
@@ -255,11 +287,30 @@ export function paintBackground(
   bg: Background,
   w: number,
   h: number,
+  /** The decoded picture, when the background is one. Loaded by the caller —
+   *  drawing a frame can't wait on a network-free but still async decode. */
+  picture?: CanvasImageSource | null,
 ): void {
   if (bg.kind === "none") return;
   if (bg.kind === "solid") {
     ctx.fillStyle = bg.color;
     ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  if (bg.kind === "image") {
+    // Black underneath: a picture that failed to load leaves a frame that's
+    // deliberately empty rather than whatever was on the canvas before.
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    if (!picture) return;
+    const size = pictureSize(picture);
+    const at = coverRect(size.w, size.h, w, h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
+    ctx.drawImage(picture, at.x, at.y, at.w, at.h);
+    ctx.restore();
     return;
   }
   const rad = (bg.angle * Math.PI) / 180;
@@ -279,11 +330,28 @@ export function paintBackground(
   ctx.fillRect(0, 0, w, h);
 }
 
+/** The dimensions of anything canvas will draw, whatever kind it is. */
+function pictureSize(picture: CanvasImageSource): { w: number; h: number } {
+  const source = picture as {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    width?: number | SVGAnimatedLength;
+    height?: number | SVGAnimatedLength;
+  };
+  const w =
+    source.naturalWidth ?? (typeof source.width === "number" ? source.width : 0);
+  const h =
+    source.naturalHeight ??
+    (typeof source.height === "number" ? source.height : 0);
+  return { w: w || 0, h: h || 0 };
+}
+
 /** Whether two backgrounds would paint the same picture. */
 export function sameBackground(a: Background, b: Background): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "none") return true;
   if (a.kind === "solid") return a.color === (b as typeof a).color;
+  if (a.kind === "image") return a.src === (b as typeof a).src;
   const other = b as typeof a;
   return (
     a.angle === other.angle &&
