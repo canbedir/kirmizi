@@ -7,6 +7,7 @@ import {
   type EditSnapshot,
 } from "@/lib/edit-state";
 import { DEFAULT_CURSOR_STYLE } from "@/lib/cursor-track";
+import { DEFAULT_ANNOTATION_COLOR } from "@/lib/annotate";
 import {
   BACKGROUND_PRESETS,
   DEFAULT_FRAME_STYLE,
@@ -24,6 +25,7 @@ const snapshot = (extra: Partial<EditSnapshot> = {}): EditSnapshot => ({
   duration: D,
   segments: [{ id: "a", start: 0, end: D, muted: false, speed: 1 }],
   zooms: [],
+  annotations: [],
   frame: DEFAULT_FRAME_STYLE,
   crop: FULL_CROP,
   cursor: DEFAULT_CURSOR_STYLE,
@@ -349,5 +351,80 @@ describe("reading a frame style back", () => {
   test("nothing at all is the default frame", () => {
     expect(readFrameStyle(undefined)).toEqual(DEFAULT_FRAME_STYLE);
     expect(readFrameStyle("rubbish")).toEqual(DEFAULT_FRAME_STYLE);
+  });
+});
+
+describe("marks travel too", () => {
+  const mark = (extra: Record<string, unknown> = {}) => ({
+    id: "m",
+    kind: "box" as const,
+    start: 1,
+    end: 4,
+    x: 0.2,
+    y: 0.3,
+    x2: 0.6,
+    y2: 0.7,
+    text: "",
+    size: 0.05,
+    color: "#f62d22",
+    ...extra,
+  });
+
+  test("come back as they went in", () => {
+    const before = snapshot({
+      annotations: [mark(), mark({ id: "t", kind: "text", text: "Look\nhere" })],
+    });
+    const after = readEdits(packEdits(before), D);
+    expect(after!.annotations).toEqual(before.annotations);
+  });
+
+  test("an edit saved before marks existed simply has none", () => {
+    const stored = packEdits(snapshot()) as unknown as Record<string, unknown>;
+    delete stored.annotations;
+    expect(readEdits(stored, D)!.annotations).toEqual([]);
+  });
+
+  test("a kind this version doesn't draw is dropped, not guessed at", () => {
+    const stored = packEdits(
+      snapshot({ annotations: [mark({ kind: "hologram" as never })] }),
+    );
+    expect(readEdits(stored, D)!.annotations).toEqual([]);
+  });
+
+  test("a mark outside the clip goes, the rest stay", () => {
+    const stored = packEdits(
+      snapshot({
+        annotations: [mark({ id: "keep" }), mark({ id: "gone", start: 90, end: 95 })],
+      }),
+    );
+    expect(readEdits(stored, D)!.annotations.map((a) => a.id)).toEqual(["keep"]);
+  });
+
+  test("one running past the end is trimmed to it", () => {
+    const stored = packEdits(snapshot({ annotations: [mark({ start: 10, end: 40 })] }));
+    expect(readEdits(stored, D)!.annotations[0].end).toBe(D);
+  });
+
+  test("a colour that isn't one falls back rather than reaching the canvas", () => {
+    const stored = packEdits(
+      snapshot({ annotations: [mark({ color: "url(javascript:x)" })] }),
+    );
+    expect(readEdits(stored, D)!.annotations[0].color).toBe(
+      DEFAULT_ANNOTATION_COLOR,
+    );
+  });
+
+  test("text is bounded, and anything that isn't text becomes none", () => {
+    const long = packEdits(
+      snapshot({ annotations: [mark({ kind: "text", text: "x".repeat(5000) })] }),
+    );
+    expect(readEdits(long, D)!.annotations[0].text.length).toBeLessThanOrEqual(400);
+    const wrong = packEdits(snapshot({ annotations: [mark({ text: 42 })] }));
+    expect(readEdits(wrong, D)!.annotations[0].text).toBe("");
+  });
+
+  test("and a mark counts as work worth remembering", () => {
+    expect(isUntouched(snapshot({ annotations: [mark()] }), DEFAULTS)).toBe(false);
+    expect(isUntouched(snapshot(), DEFAULTS)).toBe(true);
   });
 });

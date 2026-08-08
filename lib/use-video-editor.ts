@@ -8,6 +8,13 @@ import {
   ZOOM_MIN_LENGTH,
   type ZoomRegion,
 } from "@/lib/scene";
+import {
+  ANNOTATION_MIN_LENGTH,
+  clampAnnotation,
+  newAnnotation,
+  type Annotation,
+  type AnnotationKind,
+} from "@/lib/annotate";
 
 export interface Segment {
   id: string;
@@ -36,11 +43,13 @@ export const SEGMENT_MIN_LENGTH = 0.2;
 const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
 
-// One undoable edit state: the kept segments plus the zoom regions. Both
-// travel through the same history so Ctrl+Z walks every timeline edit.
+// One undoable edit state: the kept segments, the zoom regions and the marks
+// drawn over them. All of it travels through the same history so Ctrl+Z walks
+// every edit rather than only the ones on the timeline.
 interface EditState {
   segments: Segment[];
   zooms: ZoomRegion[];
+  annotations: Annotation[];
 }
 
 interface History {
@@ -51,7 +60,7 @@ interface History {
 
 const EMPTY: History = {
   past: [],
-  present: { segments: [], zooms: [] },
+  present: { segments: [], zooms: [], annotations: [] },
   future: [],
 };
 
@@ -59,8 +68,10 @@ export interface VideoEditor {
   duration: number;
   segments: Segment[];
   zooms: ZoomRegion[];
+  annotations: Annotation[];
   selectedId: string | null;
   selectedZoomId: string | null;
+  selectedAnnotationId: string | null;
   /** Kept span after edits, in seconds (accounting for per-segment speed). */
   editedDuration: number;
   /** True once the user has cut, muted, or changed speed anywhere. */
@@ -72,9 +83,14 @@ export interface VideoEditor {
    * Put back a timeline saved earlier. Starts a fresh history — there's
    * nothing before a reopened edit to undo to.
    */
-  restore: (segments: Segment[], zooms: ZoomRegion[]) => void;
+  restore: (
+    segments: Segment[],
+    zooms: ZoomRegion[],
+    annotations?: Annotation[],
+  ) => void;
   select: (id: string | null) => void;
   selectZoom: (id: string | null) => void;
+  selectAnnotation: (id: string | null) => void;
   /** Split the segment under `time` into two at `time`. */
   split: (time: number) => void;
   /** Remove a segment (no-op if it's the last remaining one). */
@@ -124,6 +140,26 @@ export interface VideoEditor {
     id: string,
     patch: Partial<Omit<ZoomRegion, "id">>,
   ) => void;
+  /**
+   * Add a mark at `time` and select it. Returns null only when the clip is
+   * too short to hold one. Two may overlap — an arrow and the label naming
+   * what it points at are one thought. Undoable.
+   */
+  addAnnotation: (
+    kind: AnnotationKind,
+    time: number,
+    color?: string,
+  ) => Annotation | null;
+  removeAnnotation: (id: string) => void;
+  /**
+   * Patch an annotation without touching the undo history — call
+   * `checkpoint()` once at the start of a drag so the gesture undoes as one
+   * step. Every field is clamped to what the renderer can draw.
+   */
+  updateAnnotation: (
+    id: string,
+    patch: Partial<Omit<Annotation, "id" | "kind">>,
+  ) => void;
   /** Snapshot the current state into the undo history. */
   checkpoint: () => void;
   undo: () => void;
@@ -137,8 +173,11 @@ export function useVideoEditor(): VideoEditor {
   const [history, setHistory] = useState<History>(EMPTY);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedZoomId, setSelectedZoomId] = useState<string | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(
+    null,
+  );
 
-  const { segments, zooms } = history.present;
+  const { segments, zooms, annotations } = history.present;
 
   const init = useCallback((value: number) => {
     setDuration(value);
@@ -147,19 +186,29 @@ export function useVideoEditor(): VideoEditor {
       present: {
         segments: [{ id: uid(), start: 0, end: value, muted: false, speed: 1 }],
         zooms: [],
+        annotations: [],
       },
       future: [],
     });
     setSelectedId(null);
     setSelectedZoomId(null);
+    setSelectedAnnotationId(null);
   }, []);
 
-  const restore = useCallback((segments: Segment[], zooms: ZoomRegion[]) => {
-    if (!segments.length) return;
-    setHistory({ past: [], present: { segments, zooms }, future: [] });
-    setSelectedId(null);
-    setSelectedZoomId(null);
-  }, []);
+  const restore = useCallback(
+    (segments: Segment[], zooms: ZoomRegion[], annotations: Annotation[] = []) => {
+      if (!segments.length) return;
+      setHistory({
+        past: [],
+        present: { segments, zooms, annotations },
+        future: [],
+      });
+      setSelectedId(null);
+      setSelectedZoomId(null);
+      setSelectedAnnotationId(null);
+    },
+    [],
+  );
 
   // Apply a change to the present state, recording it in the undo history.
   const apply = useCallback((fn: (state: EditState) => EditState) => {
@@ -170,14 +219,30 @@ export function useVideoEditor(): VideoEditor {
     });
   }, []);
 
+  // Only one thing is being worked on at a time — the panels below the stage
+  // show whatever that is, and two selections would mean two of them.
   const select = useCallback((id: string | null) => {
     setSelectedId(id);
-    if (id) setSelectedZoomId(null);
+    if (id) {
+      setSelectedZoomId(null);
+      setSelectedAnnotationId(null);
+    }
   }, []);
 
   const selectZoom = useCallback((id: string | null) => {
     setSelectedZoomId(id);
-    if (id) setSelectedId(null);
+    if (id) {
+      setSelectedId(null);
+      setSelectedAnnotationId(null);
+    }
+  }, []);
+
+  const selectAnnotation = useCallback((id: string | null) => {
+    setSelectedAnnotationId(id);
+    if (id) {
+      setSelectedId(null);
+      setSelectedZoomId(null);
+    }
   }, []);
 
   const split = useCallback(
@@ -249,7 +314,14 @@ export function useVideoEditor(): VideoEditor {
           (z) => !z.auto || covered(z) < (z.end - z.start) / 2,
         );
 
-        return { segments: segments.sort((a, b) => a.start - b.start), zooms };
+        // Annotations are kept whatever the cut takes, as hand-placed zooms
+        // are: everything here was put there on purpose, and losing it to a
+        // trim would be a worse surprise than one that no longer shows.
+        return {
+          ...prev,
+          segments: segments.sort((a, b) => a.start - b.start),
+          zooms,
+        };
       });
       setSelectedId(null);
     },
@@ -434,6 +506,62 @@ export function useVideoEditor(): VideoEditor {
     [duration],
   );
 
+  /* -------------------------------------------------------------- */
+  /* Annotations                                                     */
+  /* -------------------------------------------------------------- */
+
+  // Unlike zooms, two of these may overlap: an arrow and the label naming what
+  // it points at are one thought, and there's no reason to make them queue.
+
+  const addAnnotation = useCallback(
+    (kind: AnnotationKind, time: number, color?: string): Annotation | null => {
+      if (duration < ANNOTATION_MIN_LENGTH) return null;
+      const made = newAnnotation(kind, time, duration, color);
+      apply((prev) => ({ ...prev, annotations: [...prev.annotations, made] }));
+      selectAnnotation(made.id);
+      return made;
+    },
+    [apply, duration, selectAnnotation],
+  );
+
+  const removeAnnotation = useCallback(
+    (id: string) => {
+      apply((prev) => ({
+        ...prev,
+        annotations: prev.annotations.filter((a) => a.id !== id),
+      }));
+      setSelectedAnnotationId((cur) => (cur === id ? null : cur));
+    },
+    [apply],
+  );
+
+  /**
+   * Patch an annotation without touching the undo history — a drag would
+   * otherwise leave a step for every pixel. Callers take a `checkpoint()`
+   * when the drag begins, exactly as the zoom and segment handles do.
+   */
+  const updateAnnotation = useCallback(
+    (id: string, patch: Partial<Omit<Annotation, "id" | "kind">>) => {
+      setHistory((h) => {
+        const cur = h.present.annotations.find((a) => a.id === id);
+        if (!cur) return h;
+        const next = clampAnnotation({ ...cur, ...patch }, duration);
+        return {
+          ...h,
+          present: {
+            ...h.present,
+            // Left in the order they were added: that's the order they're
+            // drawn, so re-sorting here would shuffle what covers what.
+            annotations: h.present.annotations.map((a) =>
+              a.id === id ? next : a,
+            ),
+          },
+        };
+      });
+    },
+    [duration],
+  );
+
   const checkpoint = useCallback(() => {
     setHistory((h) => ({
       past: [...h.past, h.present],
@@ -492,8 +620,10 @@ export function useVideoEditor(): VideoEditor {
     duration,
     segments,
     zooms,
+    annotations,
     selectedId,
     selectedZoomId,
+    selectedAnnotationId,
     editedDuration,
     isEdited,
     canUndo: history.past.length > 0,
@@ -514,6 +644,10 @@ export function useVideoEditor(): VideoEditor {
     clearZooms,
     removeZoom,
     updateZoom,
+    selectAnnotation,
+    addAnnotation,
+    removeAnnotation,
+    updateAnnotation,
     checkpoint,
     undo,
     redo,

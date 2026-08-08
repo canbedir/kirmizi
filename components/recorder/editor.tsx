@@ -55,10 +55,19 @@ import {
   type CursorStyle,
 } from "@/lib/cursor-track";
 import {
+  drawAnnotationLayer,
   drawCursorLayer,
   type FrameSize,
   type SceneCursor,
 } from "@/lib/render-scene";
+import {
+  DEFAULT_ANNOTATION_COLOR,
+  handlesOf,
+  moveAnnotation,
+  moveHandle,
+  type Annotation,
+  type AnnotationKind,
+} from "@/lib/annotate";
 import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
 import { palette } from "@/lib/color";
 import { cn } from "@/lib/cn";
@@ -66,6 +75,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
+import { AnnotatePanel } from "@/components/recorder/annotate-panel";
 import { CropOverlay } from "@/components/recorder/crop-overlay";
 import { CameraPanel } from "@/components/recorder/camera-panel";
 import { CursorPanel } from "@/components/recorder/cursor-panel";
@@ -234,7 +244,18 @@ export function Editor({
   const [progress, setProgress] = useState(0);
   const exportSupported = useMemo(() => canExportVideo(), []);
 
-  const { duration, segments, zooms, selectedId, selectedZoomId, isEdited, canUndo, canRedo } =
+  const {
+    duration,
+    segments,
+    zooms,
+    annotations,
+    selectedId,
+    selectedZoomId,
+    selectedAnnotationId,
+    isEdited,
+    canUndo,
+    canRedo,
+  } =
     editor;
   // At zoomFactor 1 the whole clip fits the timeline width; zoom scales up.
   const fitPxPerSec = duration > 0 && containerWidth > 0 ? containerWidth / duration : 10;
@@ -250,6 +271,8 @@ export function Editor({
   }, []);
   const selected = segments.find((s) => s.id === selectedId) ?? null;
   const selectedZoom = zooms.find((z) => z.id === selectedZoomId) ?? null;
+  const selectedAnnotation =
+    annotations.find((a) => a.id === selectedAnnotationId) ?? null;
   const format = fileExtension(recording.mimeType).toUpperCase();
   const canSplit = segments.some(
     (s) => playhead > s.start + 0.15 && playhead < s.end - 0.15,
@@ -265,7 +288,11 @@ export function Editor({
   );
 
   const cameraOn = !!camera && !camHidden;
-  const hasScene = sceneActive(frameStyle, zooms, crop) || cameraOn || !!sceneCursor;
+  const hasScene =
+    sceneActive(frameStyle, zooms, crop) ||
+    cameraOn ||
+    !!sceneCursor ||
+    annotations.length > 0;
   // Correcting the level changes the file as surely as a cut does, so it has
   // to count as an edit — otherwise "export" would hand back the original.
   const soundTouched = !isNeutral(soundTreatment);
@@ -289,7 +316,7 @@ export function Editor({
           setRestored("none");
           return;
         }
-        editor.restore(snapshot.segments, snapshot.zooms);
+        editor.restore(snapshot.segments, snapshot.zooms, snapshot.annotations);
         setFrameStyle(snapshot.frame);
         setCrop(snapshot.crop);
         setCursorStyle(snapshot.cursor);
@@ -341,13 +368,14 @@ export function Editor({
       duration,
       segments,
       zooms,
+      annotations,
       frame: frameStyle,
       crop,
       cursor: cursorStyle,
       sound: soundStyle,
       camera: camera ? { layout: camLayout, hidden: camHidden } : null,
     }),
-    [duration, segments, zooms, frameStyle, crop, cursorStyle, soundStyle, camera, camLayout, camHidden],
+    [duration, segments, zooms, annotations, frameStyle, crop, cursorStyle, soundStyle, camera, camLayout, camHidden],
   );
   useEffect(() => {
     if (!editKey || !settled || duration <= 0) return;
@@ -567,6 +595,31 @@ export function Editor({
     }
   }
 
+  function handleSelectAnnotation(id: string | null) {
+    editor.selectAnnotation(id);
+    if (!id) return;
+    // Bring the playhead to it: choosing a mark you can't see and then being
+    // handed handles to drag would be a puzzle rather than a tool.
+    const mark = editor.annotations.find((a) => a.id === id);
+    if (mark && (playhead < mark.start || playhead > mark.end)) {
+      pause();
+      handleSeek((mark.start + mark.end) / 2);
+    }
+  }
+
+  function handleAddAnnotation(kind: AnnotationKind) {
+    const made = editor.addAnnotation(kind, playhead, lastMarkColorRef.current);
+    if (!made) {
+      toast.error("This clip is too short to mark up.");
+      return;
+    }
+    pause();
+    // The mark is laid around the playhead, so this is where the playhead
+    // already is — except at the very start or end of a clip, where it had to
+    // be pushed inwards and the playhead has to follow to see it.
+    handleSeek((made.start + made.end) / 2);
+  }
+
   // Live zoom preview: a rAF loop maps the playhead through the zoom regions
   // to a CSS transform on the video element (60fps, no React re-renders).
   const zoomsRef = useRef(zooms);
@@ -596,6 +649,7 @@ export function Editor({
   // Geometry + cursor layer for the preview overlay, read by the rAF loop.
   const overlayRef = useRef<{
     cursor: SceneCursor | null;
+    annotations: Annotation[];
     w: number;
     h: number;
     radius: number;
@@ -603,6 +657,7 @@ export function Editor({
     crop: CropRegion;
   }>({
     cursor: null,
+    annotations: [],
     w: 0,
     h: 0,
     radius: 0,
@@ -683,17 +738,29 @@ export function Editor({
           overlay.height = h;
         }
         const ctx = overlay.getContext("2d");
-        if (ctx) {
+        if (ctx && geo.size.sourceW > 0) {
           ctx.clearRect(0, 0, w, h);
-          if (geo.cursor && geo.size.sourceW > 0) {
-            const state = zoomStateAt(zoomsRef.current, video.currentTime);
-            const crop = cropRect(state, geo.size.sourceW, geo.size.sourceH, geo.crop);
+          const state = zoomStateAt(zoomsRef.current, video.currentTime);
+          const crop = cropRect(state, geo.size.sourceW, geo.size.sourceH, geo.crop);
+          const rect = { x: 0, y: 0, w, h };
+          if (geo.cursor) {
             drawCursorLayer(
               ctx,
               geo.cursor,
               video.currentTime,
               crop,
-              { x: 0, y: 0, w, h },
+              rect,
+              geo.size,
+              geo.radius,
+            );
+          }
+          if (geo.annotations.length) {
+            drawAnnotationLayer(
+              ctx,
+              geo.annotations,
+              video.currentTime,
+              crop,
+              rect,
               geo.size,
               geo.radius,
             );
@@ -732,6 +799,19 @@ export function Editor({
   // --- focal-point dot: drag on the preview to aim the zoom ---------------
   const dotDragRef = useRef(false);
   const dotDirtyRef = useRef(false);
+
+  // --- marks: drag them, and their ends, on the preview --------------------
+  // The colour of the last mark touched, so a second one matches the first
+  // without having to be told to.
+  const lastMarkColorRef = useRef(DEFAULT_ANNOTATION_COLOR);
+  const markDragRef = useRef<{
+    id: string;
+    /** A point index, or the whole thing. */
+    handle: number | "body";
+    from: { x: number; y: number };
+    origin: Annotation;
+    dirty: boolean;
+  } | null>(null);
 
   /**
    * The colours in the frame showing right now, for the background picker to
@@ -796,6 +876,7 @@ export function Editor({
   useEffect(() => {
     overlayRef.current = {
       cursor: sceneCursor,
+      annotations,
       w: stageRect.w,
       h: stageRect.h,
       radius: styled ? radiusPx(frameStyle, stageRect) : 0,
@@ -844,6 +925,78 @@ export function Editor({
   function handleDotPointerUp(event: React.PointerEvent) {
     dotDragRef.current = false;
     dotDirtyRef.current = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  }
+
+  /** Where a point of the capture (0..1) lands on the stage, in CSS pixels. */
+  function stagePoint(nx: number, ny: number): { left: number; top: number } | null {
+    if (dims.w === 0 || stagePs === 0) return null;
+    const state = zoomStateAt(zooms, playhead);
+    const crop = cropRect(state, dims.w, dims.h, shownCrop);
+    return {
+      left:
+        (stageRect.x + ((nx * dims.w - crop.x) / crop.w) * stageRect.w) * stagePs,
+      top:
+        (stageRect.y + ((ny * dims.h - crop.y) / crop.h) * stageRect.h) * stagePs,
+    };
+  }
+
+  /** The reverse: a pointer on the stage, as a point of the capture. */
+  function sourceAt(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const el = stageRef.current;
+    if (!el || dims.w === 0 || stagePs === 0) return null;
+    const bounds = el.getBoundingClientRect();
+    const state = zoomStateAt(zooms, playhead);
+    const crop = cropRect(state, dims.w, dims.h, shownCrop);
+    const vx = (clientX - bounds.left) / stagePs - stageRect.x;
+    const vy = (clientY - bounds.top) / stagePs - stageRect.y;
+    return {
+      x: (crop.x + (vx / stageRect.w) * crop.w) / dims.w,
+      y: (crop.y + (vy / stageRect.h) * crop.h) / dims.h,
+    };
+  }
+
+  function beginMarkDrag(
+    event: React.PointerEvent,
+    mark: Annotation,
+    handle: number | "body",
+  ) {
+    event.stopPropagation();
+    event.preventDefault();
+    const from = sourceAt(event.clientX, event.clientY);
+    if (!from) return;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    editor.selectAnnotation(mark.id);
+    markDragRef.current = { id: mark.id, handle, from, origin: mark, dirty: false };
+  }
+
+  function moveMarkDrag(event: React.PointerEvent) {
+    const drag = markDragRef.current;
+    if (!drag) return;
+    const at = sourceAt(event.clientX, event.clientY);
+    if (!at) return;
+    if (!drag.dirty) {
+      drag.dirty = true;
+      editor.checkpoint();
+    }
+    const next =
+      drag.handle === "body"
+        ? moveAnnotation(drag.origin, at.x - drag.from.x, at.y - drag.from.y)
+        : moveHandle(drag.origin, drag.handle, at.x, at.y);
+    editor.updateAnnotation(drag.id, {
+      x: next.x,
+      y: next.y,
+      x2: next.x2,
+      y2: next.y2,
+    });
+  }
+
+  function endMarkDrag(event: React.PointerEvent) {
+    if (!markDragRef.current) return;
+    markDragRef.current = null;
     (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
   }
 
@@ -1050,6 +1203,7 @@ export function Editor({
             style: frameStyle,
             crop,
             zooms: editor.zooms,
+            annotations: editor.annotations,
             camera:
               cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
             cursor: sceneCursor,
@@ -1114,6 +1268,24 @@ export function Editor({
 
   const ready = duration > 0;
   const dot = dotPosition();
+  /**
+   * The grab points for the selected mark: its own points, plus — for the
+   * shapes that have two — a handle in the middle for moving the whole thing
+   * rather than reshaping it.
+   */
+  const markHandles = useMemo(() => {
+    if (!selectedAnnotation) return [];
+    const points: { x: number; y: number; handle: number | "body" }[] =
+      handlesOf(selectedAnnotation).map((p, i) => ({ ...p, handle: i }));
+    if (selectedAnnotation.kind !== "text") {
+      points.push({
+        x: (selectedAnnotation.x + selectedAnnotation.x2) / 2,
+        y: (selectedAnnotation.y + selectedAnnotation.y2) / 2,
+        handle: "body",
+      });
+    }
+    return points;
+  }, [selectedAnnotation]);
   const stageMin = Math.min(dims.w, dims.h);
   const camGeo =
     camera && dims.w > 0 ? cameraGeometry(camLayout, stageRect) : null;
@@ -1191,8 +1363,8 @@ export function Editor({
               <CropOverlay crop={crop} onChange={(next) => setCrop(next)} />
             )}
 
-            {/* Redrawn pointer and click ripples. */}
-            {sceneCursor && (
+            {/* Redrawn pointer, click ripples, and anything drawn on top. */}
+            {(sceneCursor || annotations.length > 0) && (
               <canvas
                 ref={cursorCanvasRef}
                 className="pointer-events-none absolute inset-0 h-full w-full"
@@ -1232,6 +1404,37 @@ export function Editor({
               </div>
             )}
           </div>
+
+          {/* Handles for the selected mark. Only while it's actually on
+              screen — dragging something invisible is a guessing game. */}
+          {ready &&
+            selectedAnnotation &&
+            playhead >= selectedAnnotation.start &&
+            playhead <= selectedAnnotation.end &&
+            markHandles.map((handle, i) => {
+              const at = stagePoint(handle.x, handle.y);
+              if (!at) return null;
+              const body = handle.handle === "body";
+              return (
+                <div
+                  key={`${selectedAnnotation.id}-${i}`}
+                  onPointerDown={(e) =>
+                    beginMarkDrag(e, selectedAnnotation, handle.handle)
+                  }
+                  onPointerMove={moveMarkDrag}
+                  onPointerUp={endMarkDrag}
+                  onPointerCancel={endMarkDrag}
+                  aria-label={body ? "Move this mark" : "Reshape this mark"}
+                  className={cn(
+                    "absolute z-10 -translate-x-1/2 -translate-y-1/2 touch-none border-2 border-red shadow-[0_0_0_3px_rgba(0,0,0,0.35)]",
+                    body
+                      ? "size-5 cursor-move rounded-full bg-red/30"
+                      : "size-4 cursor-grab rounded-xs bg-background/80 active:cursor-grabbing",
+                  )}
+                  style={{ left: at.left, top: at.top }}
+                />
+              );
+            })}
 
           {/* Focal point of the selected zoom — drag to re-aim. */}
           {ready && dot && (
@@ -1317,8 +1520,10 @@ export function Editor({
             duration={duration}
             segments={segments}
             zooms={zooms}
+            annotations={annotations}
             selectedId={selectedId}
             selectedZoomId={selectedZoomId}
+            selectedAnnotationId={selectedAnnotationId}
             playhead={playhead}
             pxPerSec={pxPerSec}
             thumbnails={thumbnails}
@@ -1330,6 +1535,9 @@ export function Editor({
             onSelectZoom={handleSelectZoom}
             onZoomDragStart={editor.checkpoint}
             onZoomChange={editor.updateZoom}
+            onSelectAnnotation={handleSelectAnnotation}
+            onAnnotationDragStart={editor.checkpoint}
+            onAnnotationChange={editor.updateAnnotation}
             onSegmentDragStart={editor.checkpoint}
             onSegmentTrim={handleSegmentTrim}
           />
@@ -1454,6 +1662,19 @@ export function Editor({
               </Button>
             </div>
           )}
+
+          <AnnotatePanel
+            annotations={annotations}
+            selected={selectedAnnotation}
+            onAdd={handleAddAnnotation}
+            onSelect={handleSelectAnnotation}
+            onRemove={editor.removeAnnotation}
+            onChange={(id, patch) => {
+              if (patch.color) lastMarkColorRef.current = patch.color;
+              editor.updateAnnotation(id, patch);
+            }}
+            onCheckpoint={editor.checkpoint}
+          />
 
           <FramePanel
             style={frameStyle}

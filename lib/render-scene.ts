@@ -20,6 +20,7 @@ import {
   type ZoomRegion,
 } from "@/lib/scene";
 import type { CameraLayout } from "@/lib/camera-layout";
+import { annotationsAt, type Annotation } from "@/lib/annotate";
 import {
   clickEffectsAt,
   type CursorStyle,
@@ -78,6 +79,8 @@ export interface Scene {
   /** The part of the capture being exported; zooms work inside it. */
   crop?: CropRegion | null;
   zooms: ZoomRegion[];
+  /** Marks drawn on top of the recording that were never on the screen. */
+  annotations?: Annotation[] | null;
   /** Present when a webcam bubble should be composited over the video. */
   camera?: SceneCamera | null;
   /** Present when a synthetic cursor should be drawn over the video. */
@@ -225,6 +228,165 @@ export function drawCursorLayer(
   ctx.restore();
 }
 
+/* ---------------------------------------------------------------- */
+/* Annotation layer                                                  */
+/* ---------------------------------------------------------------- */
+
+/**
+ * The font annotations are set in. Geist is the page's own, and it's loaded by
+ * the time anything can be exported; the rest is there so a frame is never
+ * drawn in whatever the canvas defaults to.
+ */
+const ANNOTATION_FONT =
+  'Geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/** Lifts a mark off whatever it lands on, without an outline's cheapness. */
+function liftOff(ctx: SceneContext, px: number) {
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = px * 0.5;
+  ctx.shadowOffsetY = px * 0.12;
+}
+
+function drawText(
+  ctx: SceneContext,
+  a: Annotation,
+  at: { x: number; y: number },
+  frameH: number,
+) {
+  const px = Math.max(8, a.size * frameH);
+  ctx.font = `600 ${px}px ${ANNOTATION_FONT}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillStyle = a.color;
+  liftOff(ctx, px * 0.35);
+  // Line breaks are the author's: wrapping text the writer didn't ask for
+  // moves it around as the frame changes shape, which is the one thing a
+  // label must not do.
+  const lines = a.text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], at.x, at.y + i * px * 1.25);
+  }
+}
+
+function drawArrow(
+  ctx: SceneContext,
+  a: Annotation,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  frameH: number,
+) {
+  const weight = Math.max(2, a.size * frameH * 0.34);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return;
+  const ux = dx / length;
+  const uy = dy / length;
+
+  const head = Math.min(weight * 3.4, length);
+  const halfHead = head * 0.46;
+  // The shaft stops where the head begins, or the head's fill and the line's
+  // cap pile up into a blunt lump at the tip.
+  const shaftX = to.x - ux * head * 0.86;
+  const shaftY = to.y - uy * head * 0.86;
+
+  ctx.save();
+  liftOff(ctx, weight);
+  ctx.strokeStyle = a.color;
+  ctx.fillStyle = a.color;
+  ctx.lineWidth = weight;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(shaftX, shaftY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(to.x - ux * head + -uy * halfHead, to.y - uy * head + ux * halfHead);
+  ctx.lineTo(to.x - ux * head + uy * halfHead, to.y - uy * head - ux * halfHead);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBox(
+  ctx: SceneContext,
+  a: Annotation,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  frameH: number,
+) {
+  const weight = Math.max(2, a.size * frameH * 0.22);
+  const x = Math.min(from.x, to.x);
+  const y = Math.min(from.y, to.y);
+  const w = Math.abs(to.x - from.x);
+  const h = Math.abs(to.y - from.y);
+  if (w < 1 || h < 1) return;
+
+  ctx.save();
+  liftOff(ctx, weight);
+  ctx.strokeStyle = a.color;
+  ctx.lineWidth = weight;
+  ctx.lineJoin = "round";
+  roundRectPath(ctx, { x, y, w, h }, Math.min(weight * 1.4, w / 2, h / 2));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Draw the annotations showing at `time` over the video area.
+ *
+ * Shared by the export renderer and the editor's preview overlay, so both
+ * show the same thing. Positions come through the zoom crop — an arrow stays
+ * on what it was pointing at — while sizes are measured against the frame, so
+ * a label doesn't grow with a push-in.
+ */
+export function drawAnnotationLayer(
+  ctx: SceneContext,
+  annotations: Annotation[],
+  time: number,
+  crop: Rect,
+  rect: Rect,
+  size: FrameSize,
+  radius = 0,
+) {
+  const shown = annotationsAt(annotations, time);
+  if (!shown.length) return;
+
+  ctx.save();
+  roundRectPath(ctx, rect, radius);
+  ctx.clip();
+
+  for (const { annotation, opacity } of shown) {
+    if (opacity <= 0.002) continue;
+    const from = mapPoint(
+      annotation.x,
+      annotation.y,
+      crop,
+      rect,
+      size.sourceW,
+      size.sourceH,
+    );
+    const to = mapPoint(
+      annotation.x2,
+      annotation.y2,
+      crop,
+      rect,
+      size.sourceW,
+      size.sourceH,
+    );
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    if (annotation.kind === "text") drawText(ctx, annotation, from, size.h);
+    else if (annotation.kind === "arrow") drawArrow(ctx, annotation, from, to, size.h);
+    else drawBox(ctx, annotation, from, to, size.h);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
 /** Draw the webcam bubble (cover-cropped, clipped, mirrored, bordered). */
 function drawCameraBubble(
   ctx: SceneContext,
@@ -345,6 +507,12 @@ export function drawSceneFrame(
 
   if (scene.cursor) {
     drawCursorLayer(ctx, scene.cursor, time, crop, rect, size, radius);
+  }
+
+  // Above the click ripples — an annotation is the deliberate mark, and it
+  // shouldn't be the thing that gets covered.
+  if (scene.annotations?.length) {
+    drawAnnotationLayer(ctx, scene.annotations, time, crop, rect, size, radius);
   }
 
   if (scene.camera && cam) {

@@ -17,6 +17,14 @@ import {
   DEFAULT_CURSOR_STYLE,
   type CursorStyle,
 } from "@/lib/cursor-track";
+import {
+  ANNOTATION_MAX_SIZE,
+  ANNOTATION_MIN_LENGTH,
+  ANNOTATION_MIN_SIZE,
+  DEFAULT_ANNOTATION_COLOR,
+  type Annotation,
+  type AnnotationKind,
+} from "@/lib/annotate";
 import { formatHex, parseHex } from "@/lib/color";
 import {
   BACKGROUND_PRESETS,
@@ -46,6 +54,7 @@ export interface StoredEdits {
   duration: number;
   segments: Segment[];
   zooms: ZoomRegion[];
+  annotations: Annotation[];
   frame: FrameStyle;
   crop: CropRegion;
   cursor: CursorStyle;
@@ -57,6 +66,7 @@ export interface EditSnapshot {
   duration: number;
   segments: Segment[];
   zooms: ZoomRegion[];
+  annotations: Annotation[];
   frame: FrameStyle;
   crop: CropRegion;
   cursor: CursorStyle;
@@ -181,6 +191,46 @@ function readZooms(value: unknown, duration: number): ZoomRegion[] {
   return out;
 }
 
+const KINDS: AnnotationKind[] = ["text", "arrow", "box"];
+
+/** How much text a stored annotation may carry into the editor. */
+const MAX_TEXT = 400;
+
+function readAnnotations(value: unknown, duration: number): Annotation[] {
+  if (!Array.isArray(value)) return [];
+  const out: Annotation[] = [];
+  for (const raw of value) {
+    if (!isObject(raw)) continue;
+    const kind = KINDS.find((k) => k === raw.kind);
+    if (!kind) continue;
+    const start = num(raw.start, -1);
+    const end = num(raw.end, -1);
+    // A mark outside the clip is one that could never be seen.
+    if (start < 0 || end <= start || start > duration) continue;
+    const point = (v: unknown, fallback: number) =>
+      clamp(num(v, fallback), -0.25, 1.25);
+    out.push({
+      id:
+        typeof raw.id === "string"
+          ? raw.id
+          : Math.random().toString(36).slice(2),
+      kind,
+      start,
+      end: Math.max(start + ANNOTATION_MIN_LENGTH, Math.min(end, duration)),
+      x: point(raw.x, 0.5),
+      y: point(raw.y, 0.5),
+      x2: point(raw.x2, 0.5),
+      y2: point(raw.y2, 0.5),
+      // Trimmed rather than dropped: the text is drawn, never evaluated, but
+      // there's no reason to carry an unbounded string into a canvas.
+      text: typeof raw.text === "string" ? raw.text.slice(0, MAX_TEXT) : "",
+      size: clamp(num(raw.size, 0.05), ANNOTATION_MIN_SIZE, ANNOTATION_MAX_SIZE),
+      color: readColor(raw.color) ?? DEFAULT_ANNOTATION_COLOR,
+    });
+  }
+  return out;
+}
+
 /**
  * Read a stored edit back, against the clip it's being loaded into. Returns
  * null when there's nothing usable — the editor then starts fresh, which is
@@ -200,6 +250,7 @@ export function readEdits(value: unknown, duration: number): EditSnapshot | null
     duration,
     segments,
     zooms: readZooms(value.zooms, duration),
+    annotations: readAnnotations(value.annotations, duration),
     frame: readFrameStyle(value.frame),
     // A crop is only meaningful if it's a real rectangle inside the capture;
     // anything else falls back to the whole screen.
@@ -242,6 +293,8 @@ export function isUntouched(snapshot: EditSnapshot, defaults: {
   return (
     whole &&
     isFullCrop(snapshot.crop) &&
+    // Nothing puts a mark on the clip by itself, so one is always work.
+    !snapshot.annotations.length &&
     // Auto zooms are the editor's own suggestion, not the user's work.
     snapshot.zooms.every((z) => z.auto) &&
     sameStyle(snapshot.frame, defaults.frame) &&

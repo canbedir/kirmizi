@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MicOff, ZoomIn } from "lucide-react";
+import { ArrowUpRight, MicOff, Square, Type, ZoomIn } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/format";
 import type { Segment } from "@/lib/use-video-editor";
 import type { ZoomRegion } from "@/lib/scene";
+import type { Annotation, AnnotationKind } from "@/lib/annotate";
 
 interface Hover {
   /** Hovered time in seconds. */
@@ -16,12 +17,20 @@ interface Hover {
 
 const PREVIEW_HALF = 72; // half the preview card's width, for edge clamping
 
+const ANNOTATION_ICONS: Record<AnnotationKind, typeof Type> = {
+  text: Type,
+  arrow: ArrowUpRight,
+  box: Square,
+};
+
 interface TimelineProps {
   duration: number;
   segments: Segment[];
   zooms: ZoomRegion[];
+  annotations: Annotation[];
   selectedId: string | null;
   selectedZoomId: string | null;
+  selectedAnnotationId: string | null;
   playhead: number;
   pxPerSec: number;
   thumbnails: string[];
@@ -31,12 +40,25 @@ interface TimelineProps {
   /** Called once when a zoom drag actually starts moving (for undo). */
   onZoomDragStart: () => void;
   onZoomChange: (id: string, patch: { start?: number; end?: number }) => void;
+  onSelectAnnotation: (id: string | null) => void;
+  /** Called once when an annotation drag actually starts moving (for undo). */
+  onAnnotationDragStart: () => void;
+  onAnnotationChange: (
+    id: string,
+    patch: { start?: number; end?: number },
+  ) => void;
   /** Called once when a segment trim actually starts moving (for undo). */
   onSegmentDragStart: () => void;
   onSegmentTrim: (id: string, patch: { start?: number; end?: number }) => void;
 }
 
-interface ZoomDrag {
+/**
+ * A pill being dragged along the track. Zooms and annotations are both timed
+ * regions and behave identically here, so one drag serves both — only the
+ * callback it reports to differs.
+ */
+interface RegionDrag {
+  kind: "zoom" | "annotation";
   id: string;
   mode: "move" | "left" | "right";
   originX: number;
@@ -75,8 +97,10 @@ export function Timeline({
   duration,
   segments,
   zooms,
+  annotations,
   selectedId,
   selectedZoomId,
+  selectedAnnotationId,
   playhead,
   pxPerSec,
   thumbnails,
@@ -85,6 +109,9 @@ export function Timeline({
   onSelectZoom,
   onZoomDragStart,
   onZoomChange,
+  onSelectAnnotation,
+  onAnnotationDragStart,
+  onAnnotationChange,
   onSegmentDragStart,
   onSegmentTrim,
 }: TimelineProps) {
@@ -92,7 +119,7 @@ export function Timeline({
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-  const zoomDragRef = useRef<ZoomDrag | null>(null);
+  const zoomDragRef = useRef<RegionDrag | null>(null);
   const segDragRef = useRef<SegmentDrag | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const width = Math.max(1, duration * pxPerSec);
@@ -153,47 +180,54 @@ export function Timeline({
     trackRef.current?.releasePointerCapture(event.pointerId);
   }
 
-  // --- zoom-region drags: move the pill, or resize it by an edge handle ---
-  function beginZoomDrag(
+  // --- region drags: move a pill, or resize it by an edge handle ---
+  function beginRegionDrag(
     event: React.PointerEvent,
-    zoom: ZoomRegion,
-    mode: ZoomDrag["mode"],
+    kind: RegionDrag["kind"],
+    region: { id: string; start: number; end: number },
+    mode: RegionDrag["mode"],
   ) {
     event.stopPropagation();
     setHover(null);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    onSelectZoom(zoom.id);
+    if (kind === "zoom") onSelectZoom(region.id);
+    else onSelectAnnotation(region.id);
     zoomDragRef.current = {
-      id: zoom.id,
+      kind,
+      id: region.id,
       mode,
       originX: event.clientX,
-      start: zoom.start,
-      end: zoom.end,
+      start: region.start,
+      end: region.end,
       moved: false,
     };
   }
 
-  function moveZoomDrag(event: React.PointerEvent) {
+  function moveRegionDrag(event: React.PointerEvent) {
     const drag = zoomDragRef.current;
     if (!drag) return;
     event.stopPropagation();
     const dx = event.clientX - drag.originX;
     if (!drag.moved) {
+      // A few pixels of slack, so a click that selects doesn't also nudge —
+      // and so the undo checkpoint is only taken for a real move.
       if (Math.abs(dx) < 3) return;
       drag.moved = true;
-      onZoomDragStart();
+      if (drag.kind === "zoom") onZoomDragStart();
+      else onAnnotationDragStart();
     }
     const dt = dx / pxPerSec;
-    if (drag.mode === "move") {
-      onZoomChange(drag.id, { start: drag.start + dt, end: drag.end + dt });
-    } else if (drag.mode === "left") {
-      onZoomChange(drag.id, { start: drag.start + dt });
-    } else {
-      onZoomChange(drag.id, { end: drag.end + dt });
-    }
+    const patch =
+      drag.mode === "move"
+        ? { start: drag.start + dt, end: drag.end + dt }
+        : drag.mode === "left"
+          ? { start: drag.start + dt }
+          : { end: drag.end + dt };
+    if (drag.kind === "zoom") onZoomChange(drag.id, patch);
+    else onAnnotationChange(drag.id, patch);
   }
 
-  function endZoomDrag(event: React.PointerEvent) {
+  function endRegionDrag(event: React.PointerEvent) {
     if (!zoomDragRef.current) return;
     event.stopPropagation();
     zoomDragRef.current = null;
@@ -394,9 +428,9 @@ export function Timeline({
           return (
             <div
               key={zoom.id}
-              onPointerDown={(e) => beginZoomDrag(e, zoom, "move")}
-              onPointerMove={moveZoomDrag}
-              onPointerUp={endZoomDrag}
+              onPointerDown={(e) => beginRegionDrag(e, "zoom", zoom, "move")}
+              onPointerMove={moveRegionDrag}
+              onPointerUp={endRegionDrag}
               className={cn(
                 "absolute top-1 z-5 flex h-5 cursor-grab items-center gap-1 overflow-hidden rounded-md border px-1.5 backdrop-blur-sm select-none active:cursor-grabbing",
                 selected
@@ -414,18 +448,76 @@ export function Timeline({
               </span>
               {/* Edge handles for resizing. */}
               <div
-                onPointerDown={(e) => beginZoomDrag(e, zoom, "left")}
-                onPointerMove={moveZoomDrag}
-                onPointerUp={endZoomDrag}
+                onPointerDown={(e) => beginRegionDrag(e, "zoom", zoom, "left")}
+                onPointerMove={moveRegionDrag}
+                onPointerUp={endRegionDrag}
                 className={cn(
                   "absolute inset-y-0 left-0 w-1.5 cursor-ew-resize",
                   selected && "bg-red/60",
                 )}
               />
               <div
-                onPointerDown={(e) => beginZoomDrag(e, zoom, "right")}
-                onPointerMove={moveZoomDrag}
-                onPointerUp={endZoomDrag}
+                onPointerDown={(e) => beginRegionDrag(e, "zoom", zoom, "right")}
+                onPointerMove={moveRegionDrag}
+                onPointerUp={endRegionDrag}
+                className={cn(
+                  "absolute inset-y-0 right-0 w-1.5 cursor-ew-resize",
+                  selected && "bg-red/60",
+                )}
+              />
+            </div>
+          );
+        })}
+
+        {/* Marks — pills along the bottom edge, mirroring the zooms above so
+            the two never fight for the same strip of track. */}
+        {annotations.map((annotation) => {
+          const selected = annotation.id === selectedAnnotationId;
+          const Icon = ANNOTATION_ICONS[annotation.kind];
+          return (
+            <div
+              key={annotation.id}
+              onPointerDown={(e) =>
+                beginRegionDrag(e, "annotation", annotation, "move")
+              }
+              onPointerMove={moveRegionDrag}
+              onPointerUp={endRegionDrag}
+              className={cn(
+                "absolute bottom-1 flex h-5 cursor-grab items-center gap-1 overflow-hidden rounded-md border px-1.5 backdrop-blur-sm select-none active:cursor-grabbing",
+                // Marks may sit on top of one another; the selected one comes
+                // to the front so the pill you can see is the pill you drag.
+                selected
+                  ? "z-6 border-red bg-red/20 text-foreground"
+                  : "z-5 border-foreground/25 bg-background/60 text-muted-foreground hover:border-foreground/50",
+              )}
+              style={{
+                left: annotation.start * pxPerSec,
+                width: Math.max(14, (annotation.end - annotation.start) * pxPerSec),
+              }}
+            >
+              <Icon className="size-3 shrink-0" />
+              {annotation.kind === "text" && annotation.text && (
+                <span className="truncate font-mono text-[10px]">
+                  {annotation.text.split("\n")[0]}
+                </span>
+              )}
+              <div
+                onPointerDown={(e) =>
+                  beginRegionDrag(e, "annotation", annotation, "left")
+                }
+                onPointerMove={moveRegionDrag}
+                onPointerUp={endRegionDrag}
+                className={cn(
+                  "absolute inset-y-0 left-0 w-1.5 cursor-ew-resize",
+                  selected && "bg-red/60",
+                )}
+              />
+              <div
+                onPointerDown={(e) =>
+                  beginRegionDrag(e, "annotation", annotation, "right")
+                }
+                onPointerMove={moveRegionDrag}
+                onPointerUp={endRegionDrag}
                 className={cn(
                   "absolute inset-y-0 right-0 w-1.5 cursor-ew-resize",
                   selected && "bg-red/60",
