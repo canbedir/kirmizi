@@ -1,101 +1,191 @@
-<p align="center">
-  <img src="public/kirmizi-logo.png" alt="Kırmızı" width="92" />
-</p>
+<div align="center">
 
-<h1 align="center">Kırmızı</h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/media/lockup-onDark.svg" />
+  <img src=".github/media/lockup.svg" alt="Kırmızı" width="250" />
+</picture>
 
-<p align="center">
-  A privacy-first, browser-native screen recorder.<br />
-  Record your screen — nothing leaves your browser.
-</p>
+### Record your screen. Nothing leaves your browser.
 
-<p align="center">
-  <a href="https://kirmizi.app"><strong>kirmizi.app</strong></a>
-</p>
+No account, no upload, no watermark, no time limit.<br />
+The file is built on your machine and saved from there.
 
----
+**[Start recording →](https://kirmizi.app)**
 
-## Overview
+<br />
 
-Kırmızı is a screen recorder that runs **entirely in the browser**. Users
-capture, edit, and download screen recordings without an account, an upload, or
-a watermark.
+<img src=".github/media/stage.png" alt="A recording in the editor, framed on a gradient background." width="100%" />
 
-Every recording is assembled locally as a file and saved directly to the user's
-device. There is **no backend for media** — nothing is transmitted to a server,
-and nothing persists once the tab is closed. Privacy is a structural guarantee
-of the architecture, not a policy.
+</div>
 
-## Features
+<br />
 
-| Capability          | Description                                                                 |
-| ------------------- | --------------------------------------------------------------------------- |
-| Local-only capture  | The file is built on the device and never uploaded.                         |
-| No account          | No sign-up, no watermark, no tracking.                                       |
-| Audio               | Microphone capture mixed with system audio via the Web Audio API.           |
-| Webcam track        | The camera records as its own track — move, resize, and restyle the bubble after recording. |
-| In-browser editor   | Multi-cut timeline with filmstrip, per-segment mute and speed, animated zoom regions, and undo/redo. |
-| Frame styling       | Background presets, padding, rounded corners, and shadow, rendered into the export. |
-| Cursor & auto zoom  | With the optional companion extension: a smoothed pointer, click ripples and sounds, and zooms proposed from where you clicked. |
-| Export formats      | MP4 when the browser can encode it, WebM everywhere else.                    |
-| Capture settings    | Resolution, frame rate, and countdown, chosen before recording.             |
-| Keyboard shortcuts  | `R` record · `S` stop / split · `Z` zoom · `Space` play · `Ctrl`+`Z` undo.  |
+Most screen recorders want you to sign in, hand the take to a server you don't
+own, and give back a link with a badge in the corner. This one is the other
+arrangement: the browser captures the screen, cuts it, encodes the file, and the
+download comes off your own disk.
 
-## Architecture
+That isn't a line in a privacy policy. **There is no endpoint that could receive a
+recording** — the server hands over a page and nothing else. No database, no
+accounts, no media storage, nothing that would need a policy to explain.
 
-The application is a single [Next.js](https://nextjs.org) project composed of two
-surfaces — a marketing landing page (`/`) and the recorder (`/record`) — built on
-a small set of web-platform APIs:
+## It starts here
 
-| API                                 | Role                                             |
-| ----------------------------------- | ------------------------------------------------ |
-| `navigator.mediaDevices.getDisplayMedia()` | Screen, window, or tab capture.           |
-| `getUserMedia()` + Web Audio API    | Microphone capture and audio mixing.             |
-| `<canvas>` + `captureStream()`      | Scene rendering (frames, zooms, webcam) and edited-clip re-encoding. |
-| `MediaRecorder`                     | Encoding the stream to a `Blob`.                 |
-| `URL.createObjectURL` + `<a download>` | Saving the file locally.                      |
+<table>
+<tr>
+<td width="46%" valign="top">
 
-No database, no authentication, and no server-side media handling are involved.
+Resolution, frame rate, quality and countdown, then the button. Microphone and
+camera are toggles rather than a wizard, and system audio is taken when the
+browser will give it.
 
-### The companion extension
+There is no landing page in front of the recorder — `/record` opens on this.
 
-A page can't observe the pointer on surfaces it doesn't own, so the cursor and
-auto-zoom features are fed by an optional Chrome extension in
-[`extension/`](./extension). It collects pointer positions and click times in
-the tab being recorded, keeps them in memory, and hands them to the app when
-the recording stops — no storage, no network, and nothing about the pages
-themselves. Without it every other feature works exactly as before.
+The webcam records as **its own track**, so the bubble can be moved, resized and
+restyled afterwards instead of being burned into the picture at capture time.
 
-## Tech stack
+</td>
+<td width="54%" valign="top">
 
-- **Next.js (App Router)** · **TypeScript**
-- **Tailwind CSS** · **shadcn/ui**
-- **motion** — animation
-- **next-themes** — light / dark theming
-- Type: **Junicode** (display), **Bricolage Grotesque** (UI), **Geist Mono** (technical)
+<img src=".github/media/capture.png" alt="The recorder before recording: the record button, microphone and camera toggles, and a card of capture settings." width="100%" />
 
-## Getting started
+</td>
+</tr>
+</table>
+
+## The work survives the tab
+
+Recording locally used to mean losing everything to an accidental reload. The last
+**five** recordings and every edit made to them are kept in the browser's own
+IndexedDB, so closing the tab and coming back finds the timeline where you left
+it — the cuts, the zooms, the frame, the marks.
+
+Local and persistent are not opposites. Nothing is uploaded either way.
+
+## Every frame is drawn exactly once
+
+The obvious way to export an edited clip is to play it back and record the result.
+It works, it costs a minute of real time per minute of video, and it drops
+whatever frames the machine was too busy to draw — so the same export comes out
+differently twice.
+
+Kırmızı decodes the recording's samples through **WebCodecs**, draws each one
+through the scene renderer, and encodes it. Nothing plays, nothing is watched,
+nothing can be dropped.
+
+> A 26-second 1280×720 clip exports in about **two seconds**.
+
+Firefox has no mp4 encoder, so `MediaRecorder` there writes WebM. The same path is
+open to it through a streaming EBML reader built for what MediaRecorder actually
+produces — Segments and Clusters of unknown size, a declared duration of zero, no
+index. Firefox went from playback speed to roughly **6× faster than the clip is
+long**, and from `.webm` to `.mp4`.
+
+## Then you dress it
+
+<table>
+<tr>
+<td width="54%" valign="top">
+
+<img src=".github/media/frame.png" alt="The frame panel: preset swatches, a colour picker, three gradient stops, colours sampled from the clip, and an angle dial." width="100%" />
+
+</td>
+<td width="46%" valign="top">
+
+A background, padding, rounded corners, a shadow — rendered into the file, not
+faked in the preview.
+
+The presets are **starting points, not a menu**. Take one, turn the angle, change
+a colour, and it's yours. One colour is a flat background; adding a second makes
+it a gradient. Or drop in a picture.
+
+**From the clip** offers the colours the recording is actually made of, so the
+frame can match what's inside it.
+
+</td>
+</tr>
+</table>
+
+## And mark it
+
+<table>
+<tr>
+<td width="46%" valign="top">
+
+Text, arrows and boxes, each a timed region on the timeline like a zoom.
+
+A mark's position lives in the **capture's own coordinates**, so an arrow keeps
+pointing at the button through a crop, a reframe and a zoom. Its size is measured
+against the frame instead — a label that tripled inside a 3× push-in would be no
+use to anyone.
+
+</td>
+<td width="54%" valign="top">
+
+<img src=".github/media/marks-panel.png" alt="The marks panel: text, arrow and box buttons, a text field, colour swatches and a size slider." width="100%" />
+
+</td>
+</tr>
+</table>
+
+## The rest of the edit
+
+| | |
+| --- | --- |
+| **Cut** | A filmstrip timeline, multi-cut, per-segment mute and speed. A trim with no other edit copies the video stream rather than re-encoding it, so the picture is untouched. |
+| **Dead air** | Silence alone is a bad signal — you pause while the screen is busy. Two signals have to agree, quiet **and** still, before a stretch is offered as a cut. |
+| **Zoom** | Timed push-ins with eased ramps, aimed by dragging on the preview. With the companion they're proposed from where you actually clicked. |
+| **Crop & shape** | The screen is captured whole because that's all the browser offers; choose the part that matters afterwards, and the shape to publish it in — 16:9, 1:1, 4:5, 9:16. |
+| **Sound** | Levels are measured, not guessed: [EBU R128](https://tech.ebu.ch/publications/r128) loudness to −16 LUFS under a −1 dBTP ceiling. |
+
+**Recording** — <kbd>R</kbd> start · <kbd>S</kbd> stop · <kbd>Space</kbd> pause  
+**Editing** — <kbd>Space</kbd> play · <kbd>S</kbd> split · <kbd>Z</kbd> zoom · <kbd>M</kbd> mute · <kbd>Del</kbd> remove · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
+
+## The companion extension
+
+A web page cannot watch the pointer on surfaces it doesn't own — a deliberate
+browser boundary, and a good one. `getDisplayMedia` hands over pixels, never
+events. So click marks and auto zoom need something inside the page being
+recorded, and that something is one small optional extension.
+
+**[Kırmızı Companion on the Chrome Web Store →](https://chromewebstore.google.com/detail/kirmizi-companion/dffcgjfcmhcianhbahkmajigonlmbdaj)**
+
+It keeps pointer positions and click times in memory, hands them to your own
+kirmizi.app tab when the recording stops, and forgets them. No storage, no network
+access, and nothing about the pages you visit — no URL, no content, no element.
+Without it, everything else works exactly as before.
+
+## Run it
 
 ```bash
 bun install
-bun dev                # http://localhost:3000
+bun dev     # http://localhost:3000
+bun test    # the maths: timeline, geometry, loudness, stored edits
 ```
 
-`getDisplayMedia` requires a secure context, so recording is available on
-`localhost` during development and over HTTPS in production.
+`getDisplayMedia` needs a secure context, so recording works on `localhost` and
+over HTTPS. The pure logic is covered by **232 tests** that run in well under a
+second; anything touching an `AudioContext`, WebCodecs or the DOM is checked in a
+real browser instead.
 
-```bash
-bun run build && bun run start    # production build
-```
+## How it is built
 
-## Browser support
+| | |
+| --- | --- |
+| **Next.js** · TypeScript · Tailwind | One project: a landing page and the recorder |
+| `getDisplayMedia` · `getUserMedia` | Screen, window or tab capture, and the microphone |
+| **WebCodecs** + [mp4box](https://github.com/gpac/mp4box.js) + [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) | Demux, decode, re-encode, mux — the frame-exact export |
+| `<canvas>` · `captureStream` · `MediaRecorder` | Capture, and the fallback export |
+| Web Audio (`OfflineAudioContext`) | Loudness measurement and the finished soundtrack |
+| IndexedDB | The last few recordings and their edits |
+| [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) | Lossless trims, and AAC where the browser can't encode it |
 
-Kırmızı targets desktop **Chromium (Chrome / Edge)** and **Firefox**, where
-support is strongest. Safari's implementation is partial; the app feature-detects
-the required APIs and presents a clear fallback where they are unavailable.
-Microphone capture is reliable across browsers, while system-audio capture is
-best-effort and depends on the browser and operating system.
+Chrome, Edge and Firefox all get the frame-exact export. Safari's implementation
+is partial; the app feature-detects what it needs and says so where something is
+missing rather than failing halfway through.
 
 ## License
 
-Released under the [MIT License](./LICENSE).
+[MIT](./LICENSE) — Copyright © 2026 canbedir.
+
+The code is MIT; the Kırmızı mark and wordmark are not.
