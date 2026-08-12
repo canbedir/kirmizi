@@ -129,10 +129,17 @@ describe("usage keys", () => {
 
 describe("ids and tokens", () => {
   test("an id is long, unguessable, and safe in a URL", () => {
-    const id = newId();
-    expect(id).toMatch(/^[a-z0-9]{20}$/);
-    // No i, l, o or 0/1 — a link gets read aloud and typed by hand.
-    expect(id).not.toMatch(/[ilo01]/);
+    // Checked over many draws, not one: any single character appears in a
+    // twenty-character id about half the time, so a single id passing this
+    // proves nothing. The first version of this test was a coin flip.
+    for (let i = 0; i < 500; i++) {
+      const id = newId();
+      expect(id).toMatch(/^[a-z0-9]{20}$/);
+      // No l, o, 0 or 1 — a link gets read aloud and typed by hand, and those
+      // are the four that get typed as each other. With l and 1 gone, i is
+      // unambiguous and stays in.
+      expect(id).not.toMatch(/[lo01]/);
+    }
   });
 
   test("ten thousand ids, no two the same", () => {

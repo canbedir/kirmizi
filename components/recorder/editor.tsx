@@ -10,6 +10,7 @@ import {
   Redo2,
   RotateCcw,
   Scissors,
+  Link2,
   Trash2,
   Undo2,
   Volume2,
@@ -72,12 +73,15 @@ import {
 import { createClickVoice, type ClickVoice } from "@/lib/click-sound";
 import { palette } from "@/lib/color";
 import { loadPicture } from "@/lib/picture";
+import { SHARE_PROFILE, fitFrame } from "@/lib/export-profile";
+import { canShare } from "@/lib/share";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Timeline } from "@/components/recorder/timeline";
 import { FramePanel } from "@/components/recorder/frame-panel";
 import { AnnotatePanel } from "@/components/recorder/annotate-panel";
+import { ShareDialog, type ShareClip } from "@/components/recorder/share-dialog";
 import { CropOverlay } from "@/components/recorder/crop-overlay";
 import { CameraPanel } from "@/components/recorder/camera-panel";
 import { CursorPanel } from "@/components/recorder/cursor-panel";
@@ -227,6 +231,7 @@ export function Editor({
   }, [soundTreatment.gain]);
 
 
+  const [sharing, setSharing] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -1134,6 +1139,56 @@ export function Editor({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /** Everything drawn around the recording, for whichever export wants it. */
+  function buildScene(picture: CanvasImageSource | null) {
+    if (!hasScene) return null;
+    return {
+      style: frameStyle,
+      crop,
+      zooms: editor.zooms,
+      annotations: editor.annotations,
+      backgroundPicture: picture,
+      camera: cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
+      cursor: sceneCursor,
+    };
+  }
+
+  /**
+   * The clip at share size: smaller frame, smaller bitrate, and no AAC pass —
+   * a shared clip is watched in a browser, and browsers read Opus in an mp4
+   * perfectly well. It's only desktop players that don't.
+   */
+  async function makeShareClip(
+    onStep: (fraction: number) => void,
+  ): Promise<ShareClip> {
+    if (!canFastExport(recording.blob, recording.mimeType)) {
+      throw new Error(
+        "This browser can't render a clip small enough to share. Download it instead.",
+      );
+    }
+    const picture =
+      frameStyle.background.kind === "image"
+        ? await loadPicture(frameStyle.background.src)
+        : null;
+    const result = await fastExport({
+      blob: recording.blob,
+      mimeType: recording.mimeType,
+      segments: editor.segments,
+      scene: buildScene(picture),
+      cameraBlob: cameraOn && camera ? camera.blob : null,
+      sound: soundTreatment,
+      profile: SHARE_PROFILE,
+      onProgress: onStep,
+    });
+    const size = fitFrame(frame.w, frame.h, SHARE_PROFILE);
+    return {
+      blob: result.blob,
+      seconds: editor.editedDuration,
+      width: size.w,
+      height: size.h,
+    };
+  }
+
   async function handleExport() {
     const isMp4 = recording.mimeType.includes("mp4");
     // Pure cut/trim (no speed, mute, or scene) can be stream-copied
@@ -1217,18 +1272,7 @@ export function Editor({
         frameStyle.background.kind === "image"
           ? await loadPicture(frameStyle.background.src)
           : null;
-      const scene = hasScene
-        ? {
-            style: frameStyle,
-            crop,
-            zooms: editor.zooms,
-            annotations: editor.annotations,
-            backgroundPicture,
-            camera:
-              cameraOn && camera ? { url: camera.url, layout: camLayout } : null,
-            cursor: sceneCursor,
-          }
-        : null;
+      const scene = buildScene(backgroundPicture);
 
       // Decode the samples straight through WebCodecs where we can: every
       // frame is rendered exactly once, and it runs several times faster than
@@ -1766,6 +1810,20 @@ export function Editor({
             </p>
 
             <div className="flex items-center gap-2">
+              {canShare() && (
+                // Secondary on purpose. Downloading is what this app does;
+                // sending a copy somewhere is the exception you opt into.
+                <Button
+                  variant="outline"
+                  onClick={() => setSharing(true)}
+                  disabled={exporting}
+                  className="gap-2"
+                  title="Upload a copy and get a link to it"
+                >
+                  <Link2 className="size-4" />
+                  Get a link
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={onReset}
@@ -1812,6 +1870,13 @@ export function Editor({
           </p>
         </>
       )}
+
+      <ShareDialog
+        open={sharing}
+        onOpenChange={setSharing}
+        seconds={editor.editedDuration}
+        makeClip={makeShareClip}
+      />
     </div>
   );
 }

@@ -18,6 +18,30 @@ export const siteConfig = {
    */
   chromeStoreUrl:
     "https://chromewebstore.google.com/detail/kirmizi-companion/dffcgjfcmhcianhbahkmajigonlmbdaj",
+
+  /**
+   * Where a shared clip goes — the only address in this app that receives a
+   * recording, and only ever because somebody asked it to. It's a Worker in
+   * front of R2; kirmizi.app's own server has no endpoint that takes video.
+   *
+   * Empty turns sharing off entirely, which is what a fork gets until it
+   * points this at something of its own.
+   */
+  shareApi:
+    process.env.NEXT_PUBLIC_SHARE_API ??
+    "https://kirmizi-share.canbedir.workers.dev",
+
+  /**
+   * Cloudflare Turnstile's public half. It identifies the widget, not the
+   * account, and is meant to be read by anyone — the secret that verifies a
+   * token lives on the Worker.
+   *
+   * Empty means this build can't produce a token. That isn't a way around the
+   * check: the Worker is the one that decides, and a deployed Worker with no
+   * secret refuses everything.
+   */
+  turnstileSiteKey:
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "0x4AAAAAAEODV7iN8WfzvscX",
 } as const;
 
 /** Where to send someone who wants the companion extension. */

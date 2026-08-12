@@ -31,11 +31,28 @@ export interface Env {
   ADDRESS_SALT: string;
   /** The site allowed to post here. */
   ALLOWED_ORIGIN: string;
+  /** Only ever set in .dev.vars: lets a local run skip the bot check. */
+  ALLOW_UNVERIFIED?: string;
 }
 
-const VIDEO_TYPE = "video/mp4";
+/**
+ * What a clip may be. The frame-exact exporter writes mp4 everywhere, but the
+ * fallback path writes whatever MediaRecorder will give it — so webm is taken
+ * too rather than being stored under a label it isn't.
+ */
+const VIDEO_TYPES: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
 /** How long a browser may hold a clip. Short enough that a deletion shows. */
 const CACHE_SECONDS = 900;
+
+/** The declared type, reduced to one we serve — or nothing. */
+function videoType(header: string | null): string | null {
+  const type = (header ?? "").split(";")[0].trim().toLowerCase();
+  return VIDEO_TYPES[type] ? type : null;
+}
 
 /* ---------------------------------------------------------------- */
 /* Plumbing                                                          */
@@ -112,8 +129,15 @@ async function passesTurnstile(
   request: Request,
   env: Env,
 ): Promise<boolean> {
-  // An unset secret means a local run, where there is no Turnstile to ask.
-  if (!env.TURNSTILE_SECRET) return true;
+  if (!env.TURNSTILE_SECRET) {
+    // A local run says so out loud, in .dev.vars. A deployment with no secret
+    // has a broken check rather than no need of one, and a broken bot check
+    // must refuse — the first version of this waved everyone through, which
+    // left the endpoint open to anyone who found it.
+    if (env.ALLOW_UNVERIFIED === "true") return true;
+    console.error("TURNSTILE_SECRET is not set — refusing every upload");
+    return false;
+  }
   if (!token) return false;
   const body = new FormData();
   body.append("secret", env.TURNSTILE_SECRET);
@@ -145,6 +169,11 @@ async function share(request: Request, env: Env): Promise<Response> {
   const badClip = checkClip(bytes, seconds);
   if (badClip) return refuse(badClip, env);
 
+  const contentType = videoType(request.headers.get("content-type"));
+  if (!contentType) {
+    return refuse({ status: 415, message: "That is not a video." }, env);
+  }
+
   if (!(await passesTurnstile(url.searchParams.get("token"), request, env))) {
     return refuse(
       { status: 403, message: "Couldn't verify that you're a person. Reload and try again." },
@@ -172,9 +201,9 @@ async function share(request: Request, env: Env): Promise<Response> {
   if (!request.body) return refuse({ status: 400, message: "No clip arrived." }, env);
 
   const id = newId();
-  const key = `v/${id}.mp4`;
+  const key = `v/${id}.${VIDEO_TYPES[contentType]}`;
   const object = await env.BUCKET.put(key, request.body, {
-    httpMetadata: { contentType: VIDEO_TYPE },
+    httpMetadata: { contentType },
   });
   if (!object) {
     return refuse({ status: 500, message: "Couldn't store that clip." }, env);

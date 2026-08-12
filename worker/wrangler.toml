@@ -2,6 +2,12 @@ name = "kirmizi-share"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 
+# The app talks to the workers.dev address. Preview URLs would publish a second
+# public endpoint for every version deployed, which is more surface than a
+# single upload route wants.
+workers_dev = true
+preview_urls = false
+
 # The site allowed to post clips here. Anything else is refused by CORS.
 [vars]
 ALLOWED_ORIGIN = "https://kirmizi.app"
