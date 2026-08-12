@@ -3,9 +3,9 @@ export const siteConfig = {
   /** Without the diacritics, which is how people type it into a search box. */
   nameAscii: "Kirmizi",
   url: "https://kirmizi.app",
-  tagline: "Record your screen. Nothing leaves your browser.",
+  tagline: "Record, edit and share — all in the browser.",
   description:
-    "A privacy-first, no-signup screen recorder that runs entirely in your browser. No account, no upload, no watermark — every frame stays on your machine.",
+    "A screen recorder with a real editor, running entirely in a browser tab. Cut it, zoom it, frame it, mark it up, then download it or get a link. No account, nothing to install, no watermark.",
   author: "hix",
   githubUrl: "https://github.com/canbedir/kirmizi",
   /**

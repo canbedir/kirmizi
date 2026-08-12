@@ -5,7 +5,7 @@ import { RecorderShell } from "@/components/recorder/recorder-shell";
 export const metadata: Metadata = {
   title: "Record your screen",
   description:
-    "Record your screen entirely in the browser. Pick a surface, hit record, download — nothing leaves your machine.",
+    "Record your screen in the browser, then cut it, frame it and share it. Nothing to install, no account.",
   alternates: { canonical: `${siteConfig.url}/record` },
 };
 

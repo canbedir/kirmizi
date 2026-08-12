@@ -58,17 +58,17 @@ export function Hero() {
           variants={item}
           className="font-serif font-normal text-6xl leading-[1.02] tracking-tight text-balance sm:text-8xl"
         >
-          Record your screen.
+          Record, edit, share.
           <br />
-          Nothing <span className="italic text-red">leaves</span>.
+          All in the <span className="italic text-red">browser</span>.
         </motion.h1>
 
         <motion.p
           variants={item}
           className="max-w-xl text-lg text-muted-foreground text-pretty"
         >
-          A screen recorder that lives entirely in your browser. No account, no
-          watermark — every frame stays on your machine.
+          A screen recorder with a real editor and a share link, in one tab. No
+          account, nothing to install, no watermark.
         </motion.p>
 
         <motion.div
@@ -106,7 +106,7 @@ export function Hero() {
               </a>
             );
           })}
-          <span className="text-sm">Open source · runs 100% on-device</span>
+          <span className="text-sm">Open source · nothing to install</span>
         </motion.div>
       </motion.div>
     </section>

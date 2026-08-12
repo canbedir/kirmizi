@@ -12,8 +12,8 @@ export function SiteFooter() {
           {/* The name spelled without its diacritics too — that's how it gets
               typed into a search box, and it appears nowhere else on the site. */}
           <p className="max-w-xs text-sm text-muted-foreground">
-            {siteConfig.name} ({siteConfig.nameAscii}) is a screen recorder that
-            runs in your browser. Nothing leaves your machine.
+            {siteConfig.name} ({siteConfig.nameAscii}) records, edits and shares
+            screen recordings — all of it in a browser tab.
           </p>
         </div>
 

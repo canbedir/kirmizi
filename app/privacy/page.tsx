@@ -6,7 +6,7 @@ import { siteConfig } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "What Kırmızı and its companion extension do with your data: nothing leaves your device.",
+    "What Kırmızı does with your data: recordings stay on your device unless you ask for a link.",
   alternates: { canonical: `${siteConfig.url}/privacy` },
 };
 
@@ -37,11 +37,12 @@ export default function PrivacyPage() {
             Privacy
           </p>
           <h1 className="font-bold text-4xl leading-tight tracking-tight sm:text-5xl">
-            Nothing leaves your device.
+            Your recording stays here.
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-            Not as a promise we ask you to trust — as a consequence of how the
-            thing is built. There is no server to send recordings to.
+            Recording and editing happen entirely in your browser. One thing
+            can send a copy elsewhere — a share link — and it only ever happens
+            because you asked for it. This page says exactly what that means.
           </p>
 
           <div className="mt-14">
@@ -49,14 +50,47 @@ export default function PrivacyPage() {
               <p>
                 Screen, microphone, and webcam capture all happen in your
                 browser. The file is assembled on your machine and saved
-                straight to it. No recording, frame, or audio sample is ever
-                uploaded, because the application has no media backend to
-                upload it to.
+                straight to it. Nothing is uploaded while you record or edit —
+                there is no endpoint on this site that could receive a frame.
               </p>
               <p>
                 Recent recordings are kept in your browser&apos;s own storage
-                (IndexedDB) so you can reopen them. They never leave it, and
-                clearing your site data removes them.
+                (IndexedDB) so you can reopen them, along with the edits you
+                made. They never leave it, and clearing your site data removes
+                them.
+              </p>
+            </Section>
+
+            <Section title="Share links">
+              <p>
+                Asking for a link is the one action that sends anything
+                anywhere. When you do, a copy of the finished clip — rendered
+                smaller than the download — is uploaded to storage we run on
+                Cloudflare R2. The original recording stays on your machine
+                either way.
+              </p>
+              <p>
+                <strong className="text-foreground">
+                  A link is unlisted, not private.
+                </strong>{" "}
+                The address is long and random, so nobody will guess it and it
+                is asked not to be indexed — but anyone you give it to can watch
+                the clip, and so can anyone they pass it on to.
+              </p>
+              <p>
+                Every shared clip is deleted automatically 24 hours after it was
+                made, and you can delete it sooner from the browser that created
+                it. Nothing about who watched it is recorded: no viewer counts,
+                no addresses, no referrers.
+              </p>
+              <p>
+                To keep the service free and to stop it being used as free file
+                hosting, the upload endpoint counts how much has been uploaded
+                each day, and how much from one address. It does that against a
+                salted hash rather than the address itself, so the counters
+                cannot be turned back into a record of who was there. Cloudflare
+                Turnstile checks that there is a person present before an upload
+                is accepted.
               </p>
             </Section>
 
@@ -92,10 +126,10 @@ export default function PrivacyPage() {
 
             <Section title="Hosting">
               <p>
-                The site itself is static and served by a hosting provider,
-                which — like every web host — processes basic request data such
-                as IP addresses to deliver the page. That is the full extent of
-                what a visit involves.
+                The site is served by a hosting provider which — like every web
+                host — processes basic request data such as IP addresses to
+                deliver the page. Shared clips are served from Cloudflare, which
+                does the same. That is the full extent of what a visit involves.
               </p>
             </Section>
 

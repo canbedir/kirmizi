@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     "screen recorder",
     "browser screen recorder",
     "record screen online",
-    "no upload",
+    "browser screen recorder",
     "privacy",
     "no signup",
     "webm",

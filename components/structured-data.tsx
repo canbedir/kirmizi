@@ -33,7 +33,7 @@ const graph = {
       description: siteConfig.description,
       featureList: [
         "Records the screen entirely in the browser",
-        "No account and no upload — the file is built on your machine",
+        "No account and nothing to install — the file is built on your machine",
         "Zooms placed automatically from where you clicked",
         "Dead air cut where the recording is both quiet and still",
         "Loudness measured and corrected to a standard level",

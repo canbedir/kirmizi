@@ -30,7 +30,7 @@ export function ClosingCta() {
             Ready when you are.
           </h2>
           <p className="relative mt-4 text-lg text-muted-foreground">
-            Record your screen — nothing leaves your browser.
+            Record it, cut it, share it — without leaving the tab.
           </p>
 
           <div className="relative mt-9 flex justify-center">
@@ -40,7 +40,7 @@ export function ClosingCta() {
           <div className="relative mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-xs text-muted-foreground">
             <span>No signup</span>
             <span aria-hidden className="text-red">·</span>
-            <span>No upload</span>
+            <span>No install</span>
             <span aria-hidden className="text-red">·</span>
             <span>No watermark</span>
           </div>

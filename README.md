@@ -5,9 +5,9 @@
   <img src=".github/media/lockup.svg" alt="Kırmızı" width="250" />
 </picture>
 
-### Record your screen. Nothing leaves your browser.
+### Record, edit, share. All in the browser.
 
-No account, no upload, no watermark, no time limit.<br />
+No account, nothing to install, no watermark, no time limit.<br />
 The file is built on your machine and saved from there.
 
 **[Start recording →](https://kirmizi.app)**
@@ -20,14 +20,14 @@ The file is built on your machine and saved from there.
 
 <br />
 
-Most screen recorders want you to sign in, hand the take to a server you don't
-own, and give back a link with a badge in the corner. This one is the other
-arrangement: the browser captures the screen, cuts it, encodes the file, and the
-download comes off your own disk.
+Most screen recorders want an install, an account, and the take handed to a
+server you don't own before you can do anything with it. This one is the other
+arrangement: **the whole thing is a browser tab.** It captures the screen, cuts
+it, draws the frame, encodes the file, and the download comes off your own disk.
 
-That isn't a line in a privacy policy. **There is no endpoint that could receive a
-recording** — the server hands over a page and nothing else. No database, no
-accounts, no media storage, nothing that would need a policy to explain.
+Recording and editing never touch a server — there is no endpoint on the site
+that could receive a frame. The one exception is a share link, and it happens
+because you pressed the button that says so.
 
 ## It starts here
 
@@ -80,6 +80,21 @@ open to it through a streaming EBML reader built for what MediaRecorder actually
 produces — Segments and Clusters of unknown size, a declared duration of zero, no
 index. Firefox went from playback speed to roughly **6× faster than the clip is
 long**, and from `.webm` to `.mp4`.
+
+## Or a link, if you'd rather not send a file
+
+A download is the default and always will be. But a 40 MB mp4 is a poor thing to
+put in a chat window, so the editor will also give you a link.
+
+Pressing it opens a door rather than doing something: it says what gets uploaded,
+who can watch, and how long it lasts, and nothing happens until you agree. The
+clip is re-rendered at a quarter of the download's bitrate — two minutes lands
+around 40 MB at worst and closer to 10 in practice — and goes straight to storage
+in front of Cloudflare R2. **The original never moves.**
+
+A link is unlisted rather than private: long and random, asked not to be indexed,
+but anyone you give it to can watch. It deletes itself after 24 hours, and you
+can delete it sooner. Nothing about who watched it is kept.
 
 ## Then you dress it
 
@@ -160,11 +175,11 @@ Without it, everything else works exactly as before.
 ```bash
 bun install
 bun dev     # http://localhost:3000
-bun test    # the maths: timeline, geometry, loudness, stored edits
+bun test    # the maths: timeline, geometry, loudness, stored edits, share limits
 ```
 
 `getDisplayMedia` needs a secure context, so recording works on `localhost` and
-over HTTPS. The pure logic is covered by **232 tests** that run in well under a
+over HTTPS. The pure logic is covered by **269 tests** that run in well under a
 second; anything touching an `AudioContext`, WebCodecs or the DOM is checked in a
 real browser instead.
 
@@ -179,6 +194,7 @@ real browser instead.
 | Web Audio (`OfflineAudioContext`) | Loudness measurement and the finished soundtrack |
 | IndexedDB | The last few recordings and their edits |
 | [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) | Lossless trims, and AAC where the browser can't encode it |
+| Cloudflare Worker + R2 + D1 | Share links, and the cron that deletes them — see [`worker/`](./worker) |
 
 Chrome, Edge and Firefox all get the frame-exact export. Safari's implementation
 is partial; the app feature-detects what it needs and says so where something is
