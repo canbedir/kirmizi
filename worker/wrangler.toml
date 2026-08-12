@@ -1,0 +1,20 @@
+name = "kirmizi-share"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# The site allowed to post clips here. Anything else is refused by CORS.
+[vars]
+ALLOWED_ORIGIN = "https://kirmizi.app"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "kirmizi-shares"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kirmizi-shares"
+database_id = "54a16507-427c-429e-89cd-b5e1d9bc7223"
+
+# Every ten minutes, so a clip is gone within ten of its hour being up.
+[triggers]
+crons = ["*/10 * * * *"]

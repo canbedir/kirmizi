@@ -7,6 +7,12 @@ import {
   type FrameSize,
   type Scene,
 } from "@/lib/render-scene";
+import {
+  DOWNLOAD_PROFILE,
+  fitFrame,
+  videoBitrate,
+  type ExportProfile,
+} from "@/lib/export-profile";
 import { frameSizeFor, sceneActive } from "@/lib/scene";
 import { createClickVoice } from "@/lib/click-sound";
 import { RUMBLE_HZ, type SoundTreatment } from "@/lib/sound";
@@ -113,6 +119,7 @@ export async function exportSegments(
   onProgress?: (fraction: number) => void,
   scene?: Scene | null,
   sound?: SoundTreatment | null,
+  profile: ExportProfile = DOWNLOAD_PROFILE,
 ): Promise<Blob> {
   const video = document.createElement("video") as CaptureableVideo;
   video.src = url;
@@ -152,12 +159,13 @@ export async function exportSegments(
     }
     const sourceW = video.videoWidth || 1280;
     const sourceH = video.videoHeight || 720;
-    const { w: frameW, h: frameH } = frameSizeFor(
+    const wanted = frameSizeFor(
       sourceW,
       sourceH,
       scene.crop,
       scene.style.aspect,
     );
+    const { w: frameW, h: frameH } = fitFrame(wanted.w, wanted.h, profile);
     const size: FrameSize = { w: frameW, h: frameH, sourceW, sourceH };
     const canvas = document.createElement("canvas");
     canvas.width = frameW;
@@ -216,10 +224,19 @@ export async function exportSegments(
   ]);
 
   const type = mimeType && MediaRecorder.isTypeSupported(mimeType) ? mimeType : "";
-  const recorder = new MediaRecorder(
-    exportStream,
-    type ? { mimeType: type } : undefined,
-  );
+  // Left to itself MediaRecorder picks a bitrate of its own choosing, which is
+  // neither predictable nor small enough for something meant to be uploaded.
+  const track = exportStream.getVideoTracks()[0]?.getSettings();
+  const recorder = new MediaRecorder(exportStream, {
+    ...(type ? { mimeType: type } : {}),
+    videoBitsPerSecond: videoBitrate(
+      track?.width ?? 1920,
+      track?.height ?? 1080,
+      track?.frameRate ?? 30,
+      profile,
+    ),
+    audioBitsPerSecond: profile.audioBitrate,
+  });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) chunks.push(event.data);

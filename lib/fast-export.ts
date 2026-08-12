@@ -25,6 +25,12 @@ import {
   type SceneImage,
 } from "@/lib/render-scene";
 import { frameSizeFor } from "@/lib/scene";
+import {
+  DOWNLOAD_PROFILE,
+  fitFrame,
+  videoBitrate,
+  type ExportProfile,
+} from "@/lib/export-profile";
 import { createClickVoice } from "@/lib/click-sound";
 import { demuxVideo, looksDemuxable, type DemuxedVideo } from "@/lib/demux";
 import { createFrameReader } from "@/lib/frame-reader";
@@ -39,7 +45,6 @@ import { outputTimeAt, place, plan, type Placed } from "@/lib/timeline";
  * cadence is both truer to the capture and less work.
  */
 const AUDIO_RATE = 48_000;
-const AUDIO_BITRATE = 192_000;
 /** Samples per AudioData handed to the encoder. */
 const AUDIO_BLOCK = 1024;
 /** Seconds between forced keyframes, so the result stays seekable. */
@@ -57,6 +62,8 @@ export interface FastExportInput {
   cameraBlob?: Blob | null;
   /** Level correction and filtering, measured beforehand. */
   sound?: SoundTreatment | null;
+  /** How big the result is allowed to be. Defaults to the download's. */
+  profile?: ExportProfile;
   onProgress?: (fraction: number) => void;
 }
 
@@ -143,13 +150,9 @@ async function pickVideoEncoder(
   width: number,
   height: number,
   framerate: number,
+  profile: ExportProfile,
 ): Promise<{ config: VideoEncoderConfig; muxCodec: MuxVideoCodec }> {
-  // Same generosity the recorder uses, so an export doesn't look softer than
-  // what it came from.
-  const bitrate = Math.min(
-    100_000_000,
-    Math.max(8_000_000, Math.round(width * height * framerate * 0.2)),
-  );
+  const bitrate = videoBitrate(width, height, framerate, profile);
   // Best picture first. Baseline has neither B-frames nor CABAC, so it needs
   // more bits for the same result — but the bitrate here is generous, and it's
   // the profile that behaves everywhere.
@@ -197,6 +200,7 @@ type MuxAudioCodec = "aac" | "opus";
 async function pickAudioEncoder(
   sampleRate: number,
   numberOfChannels: number,
+  bitrate: number,
 ): Promise<{ codec: string; muxCodec: MuxAudioCodec }> {
   const candidates: { codec: string; muxCodec: MuxAudioCodec }[] = [
     { codec: "mp4a.40.2", muxCodec: "aac" },
@@ -207,7 +211,7 @@ async function pickAudioEncoder(
       codec: candidate.codec,
       sampleRate,
       numberOfChannels,
-      bitrate: AUDIO_BITRATE,
+      bitrate,
     }).catch(() => null);
     if (support?.supported) return candidate;
   }
@@ -345,6 +349,7 @@ export async function fastExport(
   input: FastExportInput,
 ): Promise<FastExportResult> {
   const { blob, segments, scene, cameraBlob, onProgress } = input;
+  const profile = input.profile ?? DOWNLOAD_PROFILE;
   const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
 
   const source: DemuxedVideo = await demuxVideo(blob);
@@ -352,10 +357,13 @@ export async function fastExport(
   const sourceH = source.height;
   if (!sourceW || !sourceH) throw new Error("The recording has no frame size.");
   // The exported frame may be a different shape from the capture, and may be
-  // showing only part of it.
-  const { w: width, h: height } = scene
+  // showing only part of it. The profile then decides how large it's allowed
+  // to end up — everything the scene draws is sized against the frame, so a
+  // smaller one scales the whole picture rather than cropping it.
+  const wanted = scene
     ? frameSizeFor(sourceW, sourceH, scene.crop, scene.style.aspect)
     : { w: sourceW, h: sourceH };
+  const { w: width, h: height } = fitFrame(wanted.w, wanted.h, profile);
   const size: FrameSize = { w: width, h: height, sourceW, sourceH };
 
   const fps = Math.min(120, Math.max(5, Math.round(source.fps) || 30));
@@ -382,10 +390,15 @@ export async function fastExport(
     width,
     height,
     fps,
+    profile,
   );
 
   const audioCodec = audio
-    ? await pickAudioEncoder(audio.sampleRate, audio.numberOfChannels)
+    ? await pickAudioEncoder(
+        audio.sampleRate,
+        audio.numberOfChannels,
+        profile.audioBitrate,
+      )
     : null;
 
   const target = new ArrayBufferTarget();
@@ -420,7 +433,7 @@ export async function fastExport(
       codec: audioCodec.codec,
       sampleRate: audio.sampleRate,
       numberOfChannels: audio.numberOfChannels,
-      bitrate: AUDIO_BITRATE,
+      bitrate: profile.audioBitrate,
     });
     await encodeAudio(audio, audioEncoder);
     audioEncoder.close();
