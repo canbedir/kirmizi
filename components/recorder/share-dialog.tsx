@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/cn";
@@ -63,11 +63,15 @@ export function ShareDialog({
 }) {
   const [stage, setStage] = useState<Stage>({ at: "asking" });
   const [copied, setCopied] = useState(false);
-  const widgetRef = useRef<HTMLDivElement>(null);
-  const tokenRef = useRef<Promise<string> | null>(null);
-  const disposeRef = useRef<(() => void) | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [checkFailed, setCheckFailed] = useState<string | null>(null);
+  /** Bumped to build a fresh widget after one fails. */
+  const [attempt, setAttempt] = useState(0);
+  const widgetRef = useRef<{ dispose: () => void } | null>(null);
 
   const tooLong = seconds > SHARE_MAX_SECONDS;
+  /** Whether this build can produce a token at all. */
+  const mustVerify = !!siteConfig.turnstileSiteKey;
 
   // Opening starts over. Adjusted on the transition rather than in an effect,
   // so the first paint is already the fresh dialog and not the last one's
@@ -78,33 +82,35 @@ export function ShareDialog({
     if (open) {
       setStage({ at: "asking" });
       setCopied(false);
+      setToken(null);
+      setCheckFailed(null);
     }
   }
 
-  // The widget is built when the door opens and taken down when it closes, so
-  // a visit that never shares anything never loads it.
-  useEffect(() => {
-    if (!open || tooLong || !siteConfig.turnstileSiteKey) return;
-    const container = widgetRef.current;
-    if (!container) return;
-    const widget = verify(container);
-    tokenRef.current = widget.token;
-    disposeRef.current = widget.dispose;
-    return () => {
-      widget.dispose();
-      tokenRef.current = null;
-      disposeRef.current = null;
-    };
-  }, [open, tooLong]);
+  /**
+   * Build the widget when its container arrives, not when the dialog opens.
+   *
+   * The dialog's contents live in a portal, and on the render that opens it
+   * the container isn't in the document yet — an effect reading a ref then
+   * finds nothing, gives up silently, and leaves no widget and no token. A
+   * callback ref runs when the element actually attaches, whenever that is.
+   */
+  const mountWidget = useCallback((node: HTMLDivElement | null) => {
+    widgetRef.current?.dispose();
+    widgetRef.current = null;
+    if (!node || !siteConfig.turnstileSiteKey) return;
+    const widget = verify(node);
+    widgetRef.current = widget;
+    widget.token.then(
+      (value) => setToken(value),
+      (error: Error) => setCheckFailed(error.message),
+    );
+  }, []);
 
   async function go() {
-    setStage({ at: "working", step: "Checking you're a person", progress: 0 });
+    if (mustVerify && !token) return;
+    setStage({ at: "working", step: "Rendering the clip", progress: 0 });
     try {
-      // No widget means no token to offer. The endpoint decides what to do
-      // with that — a deployed one refuses, which is the point.
-      const token = tokenRef.current ? await tokenRef.current : "";
-
-      setStage({ at: "working", step: "Rendering the clip", progress: 0 });
       const clip = await makeClip((progress) =>
         setStage({ at: "working", step: "Rendering the clip", progress }),
       );
@@ -115,7 +121,7 @@ export function ShareDialog({
         seconds: clip.seconds,
         width: clip.width,
         height: clip.height,
-        token,
+        token: token ?? "",
       });
       keepShare(share);
       setStage({ at: "done", share });
@@ -182,12 +188,37 @@ export function ShareDialog({
                 and you can delete it sooner.
               </li>
             </ul>
-            {!!siteConfig.turnstileSiteKey && (
-              <div ref={widgetRef} className="min-h-[65px]" />
+            {mustVerify && !checkFailed && (
+              <div key={attempt} ref={mountWidget} className="min-h-16" />
             )}
-            <Button onClick={go} className="w-full">
-              Upload and get a link
-            </Button>
+            {checkFailed ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {checkFailed}
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCheckFailed(null);
+                    setToken(null);
+                    setAttempt((n) => n + 1);
+                  }}
+                  className="w-full"
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <Button
+                onClick={go}
+                disabled={mustVerify && !token}
+                className="w-full"
+              >
+                {mustVerify && !token
+                  ? "Checking you are a person…"
+                  : "Upload and get a link"}
+              </Button>
+            )}
           </>
         ) : stage.at === "working" ? (
           <div className="flex flex-col gap-3 py-2">

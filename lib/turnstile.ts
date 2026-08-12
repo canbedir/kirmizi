@@ -76,27 +76,55 @@ export function verify(container: HTMLElement, theme: "light" | "dark" = "dark")
   let done = false;
 
   const token = new Promise<string>((resolve, reject) => {
-    load().then(
-      (turnstile) => {
+    // Nothing may be left to silence. render() throws outright when the key or
+    // the hostname is wrong, and a throw inside then() would leave this promise
+    // pending for ever — which shows up as a button that says it's checking and
+    // never stops. Every path below settles.
+    const timer = setTimeout(() => {
+      if (!done) {
+        reject(
+          new Error(
+            "The verification didn't answer. Check your connection, or download the clip instead.",
+          ),
+        );
+      }
+    }, 25_000);
+
+    const fail = (error: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+
+    load().then((turnstile) => {
+      try {
         id = turnstile.render(container, {
           sitekey: siteConfig.turnstileSiteKey,
           theme,
           callback: (value) => {
             done = true;
+            clearTimeout(timer);
             resolve(value);
           },
-          "error-callback": () => {
-            if (!done) reject(new Error("The verification didn't go through."));
-          },
+          "error-callback": () =>
+            fail(new Error("The verification didn't go through.")),
           "expired-callback": () => {
             // A token is only good for a few minutes. Rather than hand a stale
             // one to the endpoint, ask again.
             if (id) window.turnstile?.reset(id);
           },
         });
-      },
-      (error) => reject(error),
-    );
+      } catch (error) {
+        // The usual cause is a site key that doesn't list this hostname.
+        fail(
+          new Error(
+            `The verification widget wouldn't load on ${location.hostname}.`,
+          ),
+        );
+        console.error("Turnstile render failed", error);
+      }
+    }, fail);
   });
 
   return {
