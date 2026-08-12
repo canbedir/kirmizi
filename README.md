@@ -94,7 +94,11 @@ in front of Cloudflare R2. **The original never moves.**
 
 A link is unlisted rather than private: long and random, asked not to be indexed,
 but anyone you give it to can watch. It deletes itself after 24 hours, and you
-can delete it sooner. Nothing about who watched it is kept.
+can delete it sooner.
+
+The page says how many people watched — counted once an hour per visitor against
+a salted hash, so a reload isn't a viewer and nothing is kept that could say who
+any of them were. Your own visits don't count towards it.
 
 ## Then you dress it
 
@@ -179,7 +183,7 @@ bun test    # the maths: timeline, geometry, loudness, stored edits, share limit
 ```
 
 `getDisplayMedia` needs a secure context, so recording works on `localhost` and
-over HTTPS. The pure logic is covered by **269 tests** that run in well under a
+over HTTPS. The pure logic is covered by **270 tests** that run in well under a
 second; anything touching an `AudioContext`, WebCodecs or the DOM is checked in a
 real browser instead.
 

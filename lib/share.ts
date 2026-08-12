@@ -106,6 +106,8 @@ export interface ShareInfo {
   height: number;
   createdAt: number;
   expiresAt: number;
+  /** How many people have opened it. Absent from clips made before counting. */
+  views?: number;
 }
 
 /** What a link points at, or null if its day is up. */
@@ -117,6 +119,27 @@ export async function readShare(id: string): Promise<ShareInfo | null> {
   }).catch(() => null);
   if (!response?.ok) return null;
   return (await response.json().catch(() => null)) as ShareInfo | null;
+}
+
+/**
+ * Say that somebody watched this.
+ *
+ * Called when playback starts rather than when the page loads, so the number
+ * counts people who watched and not people who were sent somewhere. The
+ * endpoint counts one an hour per address, so a reload isn't a second viewer
+ * and this can be called without care.
+ *
+ * It answers with whether it counted, which is worth having: the number on
+ * screen is a moment old, and a page that just added one should say so.
+ */
+export async function markWatched(id: string): Promise<boolean> {
+  if (!siteConfig.shareApi) return false;
+  const response = await fetch(`${siteConfig.shareApi}/w/${id}`, {
+    method: "POST",
+  }).catch(() => null);
+  if (!response?.ok) return false;
+  const body = (await response.json().catch(() => null)) as { counted?: boolean } | null;
+  return body?.counted === true;
 }
 
 /* ---------------------------------------------------------------- */
@@ -165,6 +188,11 @@ export function keepShare(share: Share): void {
   } catch {
     /* remembering the token is a convenience, not the feature */
   }
+}
+
+/** Whether this browser is the one that made a link. */
+export function ownsShare(id: string): boolean {
+  return keptShares().some((s) => s.id === id);
 }
 
 export function forgetShare(id: string): void {

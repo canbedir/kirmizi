@@ -7,6 +7,7 @@ import {
   MAX_BYTES,
   MAX_SECONDS,
   TTL_SECONDS,
+  VIEW_WINDOW_MS,
   checkAddress,
   checkBudget,
   checkClip,
@@ -124,6 +125,15 @@ describe("usage keys", () => {
   test("an hour is a UTC hour", () => {
     expect(hourKey(Date.UTC(2026, 7, 11, 23, 59))).toBe("2026-08-11T23");
     expect(hourKey(Date.UTC(2026, 7, 12, 0, 1))).toBe("2026-08-12T00");
+  });
+
+  test("a view marker outlives the hour it was written in", () => {
+    // The window that matters is the hour inside the key; the marker only has
+    // to survive it, or the sweeper could clear it mid-hour and let the same
+    // person be counted twice. Worst case is a marker written on the hour.
+    const onTheHour = Date.UTC(2026, 7, 12, 10, 0, 0);
+    const nextHourStarts = Date.UTC(2026, 7, 12, 11, 0, 0);
+    expect(onTheHour + VIEW_WINDOW_MS).toBeGreaterThan(nextHourStarts);
   });
 });
 

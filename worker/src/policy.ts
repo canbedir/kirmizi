@@ -30,6 +30,17 @@ export const DAILY_UPLOADS = 2000;
 export const IP_HOURLY_UPLOADS = 6;
 export const IP_DAILY_BYTES = 400 * 1024 * 1024;
 
+/**
+ * How long a view's marker is kept before the sweeper may drop it.
+ *
+ * A view counts once per clock hour per address — the hour is in the key, so
+ * that's what does the windowing. This only has to outlast the hour it belongs
+ * to, so the sweeper can't drop a marker while it's still the one being asked
+ * about. Two hours covers the worst case; after that it's rubbish worth
+ * collecting, since nothing ever asks about a past hour.
+ */
+export const VIEW_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 export interface Refusal {
   /** What to send back. */
   status: number;

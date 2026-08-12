@@ -80,8 +80,23 @@ export default function PrivacyPage() {
               <p>
                 Every shared clip is deleted automatically 24 hours after it was
                 made, and you can delete it sooner from the browser that created
-                it. Nothing about who watched it is recorded: no viewer counts,
-                no addresses, no referrers.
+                it.
+              </p>
+              <p>
+                One number is kept about a shared clip:{" "}
+                <strong className="text-foreground">how many watched it</strong>,
+                shown on its page and counted when the clip starts playing. That
+                is the whole of it — a number, deleted with the clip. There is no
+                list of views, no addresses, no referrers, and nothing that says
+                who any viewer was.
+              </p>
+              <p>
+                Counting once per person rather than once per page load needs
+                some way to recognise a repeat, so a marker is written for a
+                couple of hours: the clip&apos;s id and a salted hash of the
+                address — the same kind of hash the limits below use. It cannot
+                be turned back into an address, it is not joined to anything,
+                and the same cron that deletes clips deletes it.
               </p>
               <p>
                 To keep the service free and to stop it being used as free file

@@ -18,6 +18,7 @@ import {
   newId,
   newToken,
   tokenMatches,
+  VIEW_WINDOW_MS,
   type Refusal,
   type Usage,
 } from "./policy";
@@ -239,7 +240,7 @@ async function share(request: Request, env: Env): Promise<Response> {
 
 async function findLive(env: Env, id: string) {
   const row = await env.DB.prepare(
-    "SELECT id, key, bytes, seconds, width, height, created_at, expires_at FROM shares WHERE id = ?",
+    "SELECT id, key, bytes, seconds, width, height, created_at, expires_at, views FROM shares WHERE id = ?",
   )
     .bind(id)
     .first<{
@@ -251,6 +252,7 @@ async function findLive(env: Env, id: string) {
       height: number;
       created_at: number;
       expires_at: number;
+      views: number;
     }>();
   // Expiry is enforced on the way out as well as by the sweeper: a clip whose
   // hour has come is gone whether or not the cron has run yet.
@@ -284,6 +286,41 @@ async function serve(request: Request, env: Env, id: string): Promise<Response> 
   return new Response(object.body, { headers });
 }
 
+/**
+ * Count a watch.
+ *
+ * Counted once an hour per salted address hash, which does three things at
+ * once: a reload isn't a second viewer, a script can't run the number up, and
+ * the D1 writes stay bounded. The hash is the same one the upload limits use —
+ * enough to count against, useless as a record of who was here.
+ *
+ * The answer is deliberately a number and nothing else. There is no list of
+ * views, no times, no places, and nothing to join them to.
+ */
+async function watched(request: Request, env: Env, id: string): Promise<Response> {
+  const row = await findLive(env, id);
+  if (!row) return json({ counted: false }, env, 404);
+
+  const now = Date.now();
+  const bucket = `view:${id}:${await addressKey(request, env, hourKey(now))}`;
+
+  // Claiming the hour and counting it are one decision, so the claim is the
+  // insert itself rather than a read followed by one. Two tabs opening at the
+  // same moment both find nothing on a read; only one of them can insert.
+  const claim = await env.DB.prepare(
+    `INSERT INTO usage (bucket, bytes, uploads, stale_at) VALUES (?, 0, 0, ?)
+     ON CONFLICT(bucket) DO NOTHING`,
+  )
+    .bind(bucket, now + VIEW_WINDOW_MS)
+    .run();
+  if (!claim.meta.changes) return json({ counted: false }, env);
+
+  await env.DB.prepare("UPDATE shares SET views = views + 1 WHERE id = ?")
+    .bind(id)
+    .run();
+  return json({ counted: true }, env);
+}
+
 async function describe(env: Env, id: string): Promise<Response> {
   const row = await findLive(env, id);
   if (!row) return json({ error: "That link has expired." }, env, 404);
@@ -296,6 +333,7 @@ async function describe(env: Env, id: string): Promise<Response> {
       height: row.height,
       createdAt: row.created_at,
       expiresAt: row.expires_at,
+      views: row.views ?? 0,
     },
     env,
   );
@@ -314,6 +352,12 @@ async function remove(request: Request, env: Env, id: string): Promise<Response>
   }
   await env.BUCKET.delete(row.key);
   await env.DB.prepare("DELETE FROM shares WHERE id = ?").bind(id).run();
+  // The view markers go with it. They'd expire within a couple of hours on
+  // their own, but somebody taking a link down on purpose shouldn't have to
+  // wait for that — and one statement is a cheap way to leave nothing behind.
+  await env.DB.prepare("DELETE FROM usage WHERE bucket LIKE ?")
+    .bind(`view:${id}:%`)
+    .run();
   return json({ deleted: true }, env);
 }
 
@@ -352,6 +396,7 @@ export default {
     if (request.method === "POST" && route === "share") return share(request, env);
     if (request.method === "GET" && route === "f" && id) return serve(request, env, id);
     if (request.method === "GET" && route === "i" && id) return describe(env, id);
+    if (request.method === "POST" && route === "w" && id) return watched(request, env, id);
     if (request.method === "DELETE" && route === "d" && id) return remove(request, env, id);
     if (request.method === "GET" && route === "sweep" && url.searchParams.has("run")) {
       // Only reachable locally: the deployed route is the cron below.

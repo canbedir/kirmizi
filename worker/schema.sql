@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS shares (
   expires_at   INTEGER NOT NULL,
   -- Held only by whoever uploaded it, so a link can be taken down early
   -- without anybody needing an account.
-  delete_token TEXT NOT NULL
+  delete_token TEXT NOT NULL,
+  -- How many people opened it. Counted once an hour per salted address hash,
+  -- so a reload is not a viewer and no address is kept to work that out.
+  views INTEGER NOT NULL DEFAULT 0
 );
 
 -- The sweeper's only query.

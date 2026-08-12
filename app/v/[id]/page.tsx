@@ -29,6 +29,7 @@ async function describe(id: string) {
     width: number;
     height: number;
     expiresAt: number;
+    views?: number;
   } | null;
 }
 
@@ -82,10 +83,12 @@ export default async function SharedClip({ params }: Props) {
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
       {clip ? (
         <SharePlayer
+          id={id}
           src={`${siteConfig.shareApi}/f/${id}`}
           width={clip.width}
           height={clip.height}
           expiresAt={clip.expiresAt}
+          views={clip.views ?? 0}
         />
       ) : (
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
