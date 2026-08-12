@@ -10,9 +10,8 @@ import {
 import { ProductDemo } from "@/components/landing/product-demo";
 
 /**
- * The "product peek" — a looping, code-driven walkthrough of the recorder in a
- * browser-style frame that rises from below with a soft shadow and a faint red
- * glow (the Zen move, our own UI).
+ * The card the demo plays inside: a browser-shaped frame that rises from below
+ * with a soft shadow and a faint red glow, and drifts against the scroll.
  */
 export function ProductPeek() {
   const reduce = useReducedMotion();
@@ -48,17 +47,8 @@ export function ProductPeek() {
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         className="mx-auto max-w-4xl overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_40px_120px_-40px_rgba(0,0,0,0.55)]"
       >
-        {/* Window chrome */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <span className="size-3 rounded-full bg-muted-foreground/25" />
-          <span className="size-3 rounded-full bg-muted-foreground/25" />
-          <span className="size-3 rounded-full bg-muted-foreground/25" />
-          <div className="mx-auto rounded-md bg-background/60 px-3 py-1 font-mono text-xs text-muted-foreground">
-            kirmizi.app/record
-          </div>
-        </div>
-
-        {/* Looping, code-driven walkthrough of the recording flow. */}
+        {/* One session, played out — chrome and all, so the address bar can
+            change when the clip becomes a link. */}
         <ProductDemo />
       </motion.div>
     </section>
