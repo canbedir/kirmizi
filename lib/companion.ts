@@ -162,6 +162,61 @@ export interface TrackBuildOptions {
   displaySurface?: string;
   /** Display bounds from the OS, if the companion could supply them. */
   displays?: DisplayBounds[] | null;
+  /**
+   * The captured frame's own size. A window capture can only be recognised by
+   * its shape, so without this a window's pointer data isn't trusted at all.
+   */
+  capture?: { width: number; height: number } | null;
+}
+
+/** How far a window's shape may sit from the capture's and still be it. */
+const SHAPE_TOLERANCE = 0.02;
+
+/**
+ * Where a click landed inside its own window, as fractions of that window.
+ *
+ * Built from the parts no page can lie about: the window's real bounds (from
+ * the browser, beyond any anti-fingerprinting), the genuine in-page position,
+ * and the tab's zoom. The chrome above the viewport falls out of the window
+ * height minus the viewport height, and the side borders likewise — so this
+ * needs to know nothing about the browser's own furniture.
+ */
+function inWindow(event: RawPointerEvent): { x: number; y: number } | null {
+  const win = event.win;
+  if (!win || win.width <= 0 || win.height <= 0) return null;
+  if (event.cx === undefined || event.cy === undefined || !event.iw) return null;
+  const zoom = event.zoom || 1;
+  const border = Math.max(0, (win.width - event.iw * zoom) / 2);
+  const chromeTop = Math.max(0, win.height - (event.ih ?? 0) * zoom - border);
+  return {
+    x: (border + event.cx * zoom) / win.width,
+    y: (chromeTop + event.cy * zoom) / win.height,
+  };
+}
+
+/**
+ * Whether this event's window is plausibly the one being recorded.
+ *
+ * getDisplayMedia never says which window was picked, so the only thing left
+ * to match on is shape: the capture *is* that window, so it carries the
+ * window's proportions whatever display scaling does to its pixel size.
+ * Events from a differently shaped window are dropped rather than guessed at.
+ *
+ * What this can't separate is two windows of the same shape — a click in a
+ * second window sized like the recorded one is indistinguishable from one
+ * inside it. That's the price of the browser not naming the surface, and it
+ * costs a zoom in the wrong place rather than anything worse.
+ */
+function windowIsCaptured(
+  win: RawPointerEvent["win"],
+  capture: { width: number; height: number } | null | undefined,
+): boolean {
+  if (!win || win.width <= 0 || win.height <= 0) return false;
+  if (!capture || capture.width <= 0 || capture.height <= 0) return false;
+  const captured = capture.width / capture.height;
+  return (
+    Math.abs(win.width / win.height - captured) <= captured * SHAPE_TOLERANCE
+  );
 }
 
 /**
@@ -170,17 +225,16 @@ export interface TrackBuildOptions {
  * Two corrections matter here. Pauses are cut out of the video but not out of
  * wall-clock time, so timestamps are shifted by however much pausing happened
  * before them. And which coordinate space is right depends on what was
- * captured: a tab fills the frame with the viewport, a monitor with the whole
- * screen.
+ * captured: a tab fills the frame with the viewport, a window with itself, a
+ * monitor with the whole screen.
  */
 export function buildCursorTrack(
   events: RawPointerEvent[],
   options: TrackBuildOptions,
 ): CursorTrack {
-  const { startedAt, pauses, displaySurface, displays } = options;
-  // Window captures don't line up with either space (we'd need the window's
-  // screen offset, which isn't exposed), so those get no cursor track.
+  const { startedAt, pauses, displaySurface, displays, capture } = options;
   const useViewport = displaySurface === "browser";
+  const useWindow = displaySurface === "window";
 
   // The display we normalise against: the OS's own bounds for the (single)
   // screen, in the very coordinate space event.screenX is measured in. Pages
@@ -211,6 +265,18 @@ export function buildCursorTrack(
     if (useViewport) {
       x = event.vx;
       y = event.vy;
+    } else if (useWindow) {
+      // A window capture is the window, so the window's own coordinates are
+      // the frame's. Nothing about the screen enters into it — which is also
+      // why this holds up across several monitors, where normalising against
+      // one display's bounds can't.
+      const placed = windowIsCaptured(event.win, capture)
+        ? inWindow(event)
+        : null;
+      if (placed) {
+        x = placed.x;
+        y = placed.y;
+      }
     } else if (
       event.cx !== undefined &&
       event.win &&
@@ -279,11 +345,13 @@ export function buildCursorTrack(
   if (Number.isFinite(zoomMin)) track.zoomRange = [zoomMin, zoomMax];
   track.space = useViewport
     ? "viewport"
-    : usedWindowGeometry
-      ? "window"
-      : display
-        ? "display"
-        : "page-metrics";
+    : useWindow
+      ? "window-surface"
+      : usedWindowGeometry
+        ? "window"
+        : display
+          ? "display"
+          : "page-metrics";
   if (display) track.displayBounds = { ...display };
   return track;
 }
@@ -295,14 +363,20 @@ export function buildCursorTrack(
  * on the pixel. A single screen is exact too — display scaling cancels out
  * once both sides are normalised.
  *
- * More than one screen is where it breaks down. Coordinates are measured from
- * the whole virtual desktop, and nothing tells us which of the screens the
- * user picked, so anything drawn from them can land on the wrong part of the
- * frame — or the wrong monitor entirely. Better to collect nothing than to
- * put the zoom somewhere the user didn't click.
+ * A window is measured against itself, which needs no screen at all, so the
+ * monitors don't come into it. Whether the window we hear from is the one
+ * being recorded can't be settled until the events are in, so collecting is
+ * allowed here and the shape check happens in buildCursorTrack.
+ *
+ * More than one screen is where the whole-screen capture breaks down.
+ * Coordinates are measured from the whole virtual desktop, and nothing tells
+ * us which of the screens the user picked, so anything drawn from them can
+ * land on the wrong part of the frame — or the wrong monitor entirely. Better
+ * to collect nothing than to put the zoom somewhere the user didn't click.
  */
 export function surfaceSupportsCursor(displaySurface?: string): boolean {
   if (displaySurface === "browser") return true;
+  if (displaySurface === "window") return true;
   if (displaySurface !== "monitor") return false;
   const extended =
     typeof screen !== "undefined" &&

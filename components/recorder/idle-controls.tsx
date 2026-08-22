@@ -157,7 +157,7 @@ export function IdleControls({
           Cursor tracking on
           <span className="text-muted-foreground">
             {extended
-              ? "record a tab — clicks can't be placed on a multi-screen desktop"
+              ? "record a tab or a window — clicks can't be placed on a multi-screen desktop"
               : "auto zoom · click effects"}
           </span>
         </span>

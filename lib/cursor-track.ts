@@ -36,8 +36,17 @@ export interface CursorTrack {
   clicks: CursorClick[];
   /** Range of per-tab zoom factors seen while collecting (diagnostic). */
   zoomRange?: [number, number];
-  /** Which coordinate space positions were normalised in (diagnostic). */
-  space?: "viewport" | "window" | "display" | "page-metrics";
+  /**
+   * Which coordinate space positions were normalised in (diagnostic).
+   * "window-surface" is a captured window measured against itself;
+   * "window" is window geometry used to reconstruct a position on a screen.
+   */
+  space?:
+    | "viewport"
+    | "window-surface"
+    | "window"
+    | "display"
+    | "page-metrics";
   /** The OS display bounds used, when space is "display" (diagnostic). */
   displayBounds?: {
     left: number;

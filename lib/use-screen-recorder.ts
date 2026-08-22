@@ -563,6 +563,9 @@ export function useScreenRecorder(): UseScreenRecorder {
               pauses: pausesRef.current,
               displaySurface,
               displays: collected.displays,
+              // A window capture is identified by its shape, so the frame's
+              // own size is what tells us which window we're looking at.
+              capture: captureInfo,
             });
             if (hasCursorData(built) && recordingRef.current === finished) {
               const withCursor: Recording = { ...finished, cursor: built };
