@@ -123,6 +123,14 @@ describe("window capture", () => {
     expect(track.samples).toHaveLength(0);
   });
 
+  test("a size of zero is no size at all", () => {
+    // A capture track reports no dimensions until it has produced a frame,
+    // so zeroes are what an answer asked for too early looks like. They must
+    // not read as a 1:1 window, or every shape check would turn on timing.
+    const track = build([clickAt(592, 350)], { width: 0, height: 0 });
+    expect(track.samples).toHaveLength(0);
+  });
+
   test("an older companion that can't report its window is dropped", () => {
     // No cx/win means only screen coordinates, which say nothing about where
     // the window was — so there is no way to place it inside one.

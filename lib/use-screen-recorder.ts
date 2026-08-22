@@ -162,6 +162,11 @@ export function useScreenRecorder(): UseScreenRecorder {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const camRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  /** The captured frame's size, once the track has produced one. */
+  const captureSizeRef = useRef<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
   const startedAtRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   // Kept in a ref so cleanup can revoke the object URL without re-renders.
@@ -338,9 +343,10 @@ export function useScreenRecorder(): UseScreenRecorder {
       const captureSettings = display.getVideoTracks()[0]?.getSettings() as
         | (MediaTrackSettings & { displaySurface?: string })
         | undefined;
+      // The surface is known the moment the picker closes; the size usually
+      // isn't, so it's seeded here and settled once frames arrive.
       const displaySurface = captureSettings?.displaySurface;
-      const captureInfo = {
-        displaySurface,
+      captureSizeRef.current = {
         width: captureSettings?.width ?? 0,
         height: captureSettings?.height ?? 0,
       };
@@ -467,6 +473,16 @@ export function useScreenRecorder(): UseScreenRecorder {
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0)
           chunksRef.current.push(event.data);
+        // A capture track doesn't know its own size until it has produced a
+        // frame, so asking at acquisition time routinely returns nothing.
+        // Data is here, so frames are flowing: this is the first moment the
+        // answer exists. Asked once, then left alone.
+        if (captureSizeRef.current.width === 0) {
+          const now = display.getVideoTracks()[0]?.getSettings();
+          if (now?.width && now?.height) {
+            captureSizeRef.current = { width: now.width, height: now.height };
+          }
+        }
       };
 
       // The webcam records in parallel with the same clock so the editor can
@@ -534,6 +550,11 @@ export function useScreenRecorder(): UseScreenRecorder {
               layout: options?.cameraLayout ?? DEFAULT_CAMERA_LAYOUT,
             };
           }
+          const captureInfo = {
+            displaySurface,
+            width: captureSizeRef.current.width,
+            height: captureSizeRef.current.height,
+          };
           const finished: Recording = {
             url,
             blob,
