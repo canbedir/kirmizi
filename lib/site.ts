@@ -4,8 +4,14 @@ export const siteConfig = {
   nameAscii: "Kirmizi",
   url: "https://kirmizi.app",
   tagline: "Record, edit and share — all in the browser.",
+  /**
+   * The one line under the name in a link preview. It has one sentence to
+   * say what this is, so it says the whole arc — record, edit, and the two
+   * ways it leaves — rather than listing the editor's features to somebody
+   * who doesn't yet know there is an editor.
+   */
   description:
-    "A screen recorder with a real editor, running entirely in a browser tab. Cut it, zoom it, frame it, mark it up, then download it or get a link. No account, nothing to install, no watermark.",
+    "Record your screen, edit it, and download or share it — all in your browser.",
   author: "hix",
   githubUrl: "https://github.com/canbedir/kirmizi",
   /**
