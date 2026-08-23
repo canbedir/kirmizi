@@ -84,7 +84,10 @@ import { AnnotatePanel } from "@/components/recorder/annotate-panel";
 import { ShareDialog, type ShareClip } from "@/components/recorder/share-dialog";
 import { CropOverlay } from "@/components/recorder/crop-overlay";
 import { CameraPanel } from "@/components/recorder/camera-panel";
-import { CursorPanel } from "@/components/recorder/cursor-panel";
+import {
+  CursorMissNote,
+  CursorPanel,
+} from "@/components/recorder/cursor-panel";
 import { SoundPanel } from "@/components/recorder/sound-panel";
 import { PacePanel } from "@/components/recorder/pace-panel";
 import { findDeadAir } from "@/lib/dead-air";
@@ -1774,14 +1777,19 @@ export function Editor({
             />
           )}
 
-          {cursorTrack && (
+          {cursorTrack ? (
             <CursorPanel
               style={cursorStyle}
               clickCount={cursorTrack.clicks.length}
               zoomCount={zooms.filter((z) => z.auto).length}
               onChange={applyCursorStyle}
             />
-          )}
+          ) : recording.cursorMiss ? (
+            <CursorMissNote
+              miss={recording.cursorMiss}
+              surface={recording.capture?.displaySurface}
+            />
+          ) : null}
 
           {camera && (
             <CameraPanel

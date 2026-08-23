@@ -13,7 +13,11 @@ import {
   surfaceSupportsCursor,
   type PauseWindow,
 } from "@/lib/companion";
-import { hasCursorData, type CursorTrack } from "@/lib/cursor-track";
+import {
+  hasCursorData,
+  type CursorMiss,
+  type CursorTrack,
+} from "@/lib/cursor-track";
 
 export type RecorderStatus =
   | "idle"
@@ -42,6 +46,8 @@ export interface Recording {
   camera?: RecordedCamera | null;
   /** Present when the companion extension supplied pointer data. */
   cursor?: CursorTrack | null;
+  /** Why there isn't any, when the companion was there to supply it. */
+  cursorMiss?: CursorMiss | null;
   /** What the browser said it captured, kept for diagnosing misplacement. */
   capture?: {
     displaySurface?: string;
@@ -563,6 +569,10 @@ export function useScreenRecorder(): UseScreenRecorder {
             durationMs,
             camera,
             capture: captureInfo,
+            // The companion answered but the browser never named a surface we
+            // could measure a click against. Everything else about why there
+            // might be no pointer data is only knowable once the events are in.
+            cursorMiss: companionOk && !cursorOk ? "surface" : null,
           };
           recordingRef.current = finished;
           setRecording(finished);
@@ -588,10 +598,21 @@ export function useScreenRecorder(): UseScreenRecorder {
               // own size is what tells us which window we're looking at.
               capture: captureInfo,
             });
-            if (hasCursorData(built) && recordingRef.current === finished) {
-              const withCursor: Recording = { ...finished, cursor: built };
-              recordingRef.current = withCursor;
-              setRecording(withCursor);
+            if (recordingRef.current === finished) {
+              const placed = hasCursorData(built);
+              const settled: Recording = {
+                ...finished,
+                cursor: placed ? built : null,
+                // Nothing collected and nothing placeable are different
+                // problems with different answers, so they're told apart.
+                cursorMiss: placed
+                  ? null
+                  : collected.events.length === 0
+                    ? "nothing"
+                    : "unplaceable",
+              };
+              recordingRef.current = settled;
+              setRecording(settled);
             }
           }
         })();

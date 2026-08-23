@@ -57,6 +57,26 @@ export interface CursorTrack {
   };
 }
 
+/**
+ * Why a recording has no cursor track, when it might have had one.
+ *
+ * The editor used to answer this by saying nothing at all: the clicks panel
+ * simply wasn't there, and whether that meant "you have no extension", "you
+ * clicked in the wrong window" or "this is broken" was left to be guessed.
+ * Each of these has a different thing the person could do about it, so each
+ * of them gets said.
+ *
+ * Not installing the companion isn't one of these — that's offered on the
+ * way in, and repeating it over a finished recording would only be nagging.
+ */
+export type CursorMiss =
+  /** The browser didn't name a surface we can measure clicks against. */
+  | "surface"
+  /** The companion was collecting and nothing at all came back. */
+  | "nothing"
+  /** Pointer data arrived but none of it belonged to what's in the frame. */
+  | "unplaceable";
+
 // Note on what this deliberately does *not* do: redraw the pointer.
 //
 // No browser will leave the system cursor out of a screen capture, so a

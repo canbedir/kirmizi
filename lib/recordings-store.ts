@@ -5,7 +5,7 @@
 // pull every video into memory.
 
 import type { CameraLayout } from "@/lib/camera-layout";
-import type { CursorTrack } from "@/lib/cursor-track";
+import type { CursorMiss, CursorTrack } from "@/lib/cursor-track";
 
 const DB_NAME = "kirmizi";
 const DB_VERSION = 2;
@@ -31,6 +31,8 @@ export interface RecordingMeta {
   cameraLayout?: CameraLayout | null;
   /** Pointer data from the companion extension, if there was any. */
   cursor?: CursorTrack | null;
+  /** And why there wasn't, so a reopened recording can still say so. */
+  cursorMiss?: CursorMiss | null;
 }
 
 export interface NewRecording {
@@ -45,6 +47,7 @@ export interface NewRecording {
     layout: CameraLayout;
   } | null;
   cursor?: CursorTrack | null;
+  cursorMiss?: CursorMiss | null;
 }
 
 function hasIDB(): boolean {
@@ -84,6 +87,34 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+/**
+ * Attach pointer data to a take already filed, rather than filing it twice.
+ *
+ * The companion answers after the recording is finished, so what the editor
+ * knows about the pointer arrives a moment behind everything else. The take
+ * is already in here by then, and re-saving it would put a second copy of
+ * the same recording in a history five items long.
+ */
+export async function updateRecordingCursor(
+  id: string,
+  cursor: CursorTrack | null,
+  cursorMiss: CursorMiss | null,
+): Promise<void> {
+  if (!hasIDB()) return;
+  try {
+    const db = await openDB();
+    const tx = db.transaction(META, "readwrite");
+    const store = tx.objectStore(META);
+    const meta = (await request(store.get(id))) as RecordingMeta | undefined;
+    // Gone already — pruned, or deleted while the companion was answering.
+    if (meta) store.put({ ...meta, cursor, cursorMiss });
+    await txDone(tx);
+    db.close();
+  } catch {
+    // Best-effort, exactly like saving it was.
+  }
 }
 
 export async function listRecordings(): Promise<RecordingMeta[]> {
@@ -135,6 +166,7 @@ export async function saveRecording(
       cameraMimeType: rec.camera?.mimeType ?? null,
       cameraLayout: rec.camera?.layout ?? null,
       cursor: rec.cursor ?? null,
+      cursorMiss: rec.cursorMiss ?? null,
     };
     const tx = db.transaction([META, BLOBS], "readwrite");
     tx.objectStore(META).put(meta);

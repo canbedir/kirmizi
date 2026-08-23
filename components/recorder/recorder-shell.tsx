@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { useScreenRecorder, type Recording } from "@/lib/use-screen-recorder";
 import { useMediaSupport } from "@/lib/use-media-support";
@@ -8,6 +8,7 @@ import { useRecentRecordings } from "@/lib/use-recent-recordings";
 import {
   getRecordingBlob,
   getRecordingCameraBlob,
+  updateRecordingCursor,
 } from "@/lib/recordings-store";
 import { DEFAULT_CAMERA_LAYOUT } from "@/lib/camera-layout";
 import { captureCover } from "@/lib/capture-cover";
@@ -69,30 +70,63 @@ export function RecorderShell() {
 
   // Persist each finished recording to the local (IndexedDB) history, with a
   // captured cover frame.
+  //
+  // This runs twice for one take: the companion answers after the recording
+  // is finished, and the pointer data it brings replaces the Recording. The
+  // blob URL is the one thing that survives that, so it's what says whether
+  // this is a take to file or a take already filed — the second pass writes
+  // the pointer data onto the row rather than putting a second copy of the
+  // same recording in a history five items long.
+  const filedRef = useRef<{
+    url: string;
+    id: Promise<string | null>;
+  } | null>(null);
+
   useEffect(() => {
     if (!recording) return;
+    const take = recording;
     let cancelled = false;
-    captureCover(recording.url).then(async (cover) => {
-      if (cancelled) return;
-      const id = await save({
-        blob: recording.blob,
-        mimeType: recording.mimeType,
-        size: recording.size,
-        durationMs: recording.durationMs,
-        cover,
-        camera: recording.camera
-          ? {
-              blob: recording.camera.blob,
-              mimeType: recording.camera.mimeType,
-              layout: recording.camera.layout,
-            }
-          : null,
-        cursor: recording.cursor ?? null,
+
+    if (filedRef.current?.url !== take.url) {
+      filedRef.current = {
+        url: take.url,
+        id: captureCover(take.url).then((cover) =>
+          save({
+            blob: take.blob,
+            mimeType: take.mimeType,
+            size: take.size,
+            durationMs: take.durationMs,
+            cover,
+            camera: take.camera
+              ? {
+                  blob: take.camera.blob,
+                  mimeType: take.camera.mimeType,
+                  layout: take.camera.layout,
+                }
+              : null,
+            cursor: take.cursor ?? null,
+            cursorMiss: take.cursorMiss ?? null,
+          }),
+        ),
+      };
+    } else {
+      void filedRef.current.id.then((id) => {
+        if (id) {
+          void updateRecordingCursor(
+            id,
+            take.cursor ?? null,
+            take.cursorMiss ?? null,
+          );
+        }
       });
-      // The id the edits will be filed under; it arrives a moment after the
-      // editor opens, which is fine — a new recording has none to load.
-      if (!cancelled) setFiled({ recording, id });
+    }
+
+    // The id the edits will be filed under; it arrives a moment after the
+    // editor opens, which is fine — a new recording has none to load.
+    void filedRef.current.id.then((id) => {
+      if (!cancelled) setFiled({ recording: take, id });
     });
+
     return () => {
       cancelled = true;
     };
@@ -122,6 +156,7 @@ export function RecorderShell() {
             }
           : null,
         cursor: meta?.cursor ?? null,
+        cursorMiss: meta?.cursorMiss ?? null,
       });
     },
     [recents],

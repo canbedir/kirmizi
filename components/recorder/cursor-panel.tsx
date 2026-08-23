@@ -2,7 +2,7 @@
 
 import { MousePointerClick, Sparkles, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { CursorStyle } from "@/lib/cursor-track";
+import type { CursorMiss, CursorStyle } from "@/lib/cursor-track";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
@@ -12,6 +12,59 @@ import { Slider } from "@/components/ui/slider";
 
 function sliderValue(value: number | readonly number[]): number {
   return Array.isArray(value) ? (value[0] as number) : (value as number);
+}
+
+/**
+ * Why the pointer couldn't be put on the frame, in the terms of the surface.
+ *
+ * A window fails one way — the clicks were in a different one. A screen fails
+ * two, and they aren't worth separating for a reader: either the pointer was
+ * on another monitor, or it crossed between them often enough that nothing
+ * says which one the recording is of.
+ */
+function unplaceableOn(surface?: string): string {
+  if (surface === "window") {
+    return "none of it could be placed on the window in the frame — it was in a different one.";
+  }
+  if (surface === "monitor") {
+    return "none of it could be placed on the screen in the frame — it was on another one, or moved between them.";
+  }
+  return "none of it could be placed on what was captured.";
+}
+
+/**
+ * What the clicks panel says instead of being missing.
+ *
+ * The panel used to just not be there, which reads as a bug whatever the
+ * reason was. Each of these has something the person could do differently
+ * next time, so each of them says what that is.
+ */
+export function CursorMissNote({
+  miss,
+  surface,
+}: {
+  miss: CursorMiss;
+  surface?: string;
+}) {
+  const note =
+    miss === "surface"
+      ? "The browser didn't say what it was capturing, so a click can't be matched to a place in the frame."
+      : miss === "nothing"
+        ? "No clicks were recorded. Only what happens inside a page is collected — not the browser's own toolbar, and not another app."
+        : `The pointer was recorded, but ${unplaceableOn(surface)}`;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          Clicks
+        </span>
+        <span className="max-w-prose flex-1 font-mono text-[11px] leading-relaxed text-muted-foreground/80">
+          {note}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function CursorPanel({
