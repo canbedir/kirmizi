@@ -49,3 +49,37 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  # The exporter, driven in a browser that's already on the runner. Its own
+  # job because it needs a server and a couple of minutes, and because when
+  # it breaks it should be obvious that it was the export rather than a type.
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run build
+
+      - name: Serve
+        run: bun run start &
+
+      - name: Wait for the server
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/record && exit 0
+            sleep 1
+          done
+          echo "the server never came up"; exit 1
+
+      - name: Export
+        env:
+          KIRMIZI_URL: http://localhost:3000
+          KIRMIZI_BROWSER: chrome
+        run: bun run test:browser

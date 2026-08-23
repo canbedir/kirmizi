@@ -21,6 +21,13 @@ export const BACKDROP = { label: "Graphite", color: "#16130f" };
 export const BASE = process.env.KIRMIZI_URL ?? "http://localhost:3123";
 
 /**
+ * Which installed browser to drive. No browser is downloaded — this uses one
+ * that is already on the machine, which is Edge here and whatever a runner
+ * has there.
+ */
+const CHANNEL = process.env.KIRMIZI_BROWSER ?? "msedge";
+
+/**
  * Replaces screen capture with a canvas, and counts VideoEncoders.
  *
  * The count is how the test knows which export path ran: only the
@@ -82,7 +89,7 @@ function pageSetup({ color, width, height, breakWebCodecs }) {
 
 /** A recorder page with a fake screen, recorded for `seconds` and stopped. */
 export async function recordInEditor({ seconds = 3, breakWebCodecs = false } = {}) {
-  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  const browser = await chromium.launch({ channel: CHANNEL, headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
   await context.addInitScript(
     pageSetup({ ...SCREEN, breakWebCodecs }),
