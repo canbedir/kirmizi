@@ -3,7 +3,12 @@ export const siteConfig = {
   /** Without the diacritics, which is how people type it into a search box. */
   nameAscii: "Kirmizi",
   url: "https://kirmizi.app",
-  tagline: "Record, edit and share — all in the browser.",
+  /**
+   * The half-line after the name, in a tab and above a link preview. A name
+   * and what the thing is — the sentence about it belongs in `description`,
+   * which sits directly underneath and shouldn't be hearing an echo.
+   */
+  tagline: "screen recorder with an editor",
   /**
    * The one line under the name in a link preview. It has one sentence to
    * say what this is, so it says the whole arc — record, edit, and the two
