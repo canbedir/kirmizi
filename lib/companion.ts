@@ -16,22 +16,31 @@ import type { CursorClick, CursorSample, CursorTrack } from "@/lib/cursor-track"
 const APP = "kirmizi-app";
 const EXT = "kirmizi-companion";
 
-/** One pointer observation, as reported by the extension. */
+/**
+ * One pointer observation, as reported by the extension.
+ *
+ * Nearly all of it is optional, because an install in the wild can predate
+ * any given field. Which install is deliberately not spelled out: the
+ * manifest's version numbers releases to the store rather than commits, and
+ * has been rolled back before now to keep the published sequence tidy, so a
+ * number cited here would describe a build nobody ever had. What each field
+ * is, and what to do when it's missing, is the part that stays true.
+ */
 export interface RawPointerEvent {
   /** Date.now() when it happened. */
   t: number;
   /** Position within the tab's viewport, 0..1 (top frame only). */
   vx?: number;
   vy?: number;
-  /** Raw screen position, device-independent pixels (companion ≥ 1.0.2). */
+  /** Raw screen position, device-independent pixels. */
   screenX?: number;
   screenY?: number;
-  /** Genuine top-frame client coordinates + viewport size (≥ 1.0.4). */
+  /** Genuine top-frame client coordinates, and the viewport holding them. */
   cx?: number;
   cy?: number;
   iw?: number;
   ih?: number;
-  /** The tab's window bounds, from the browser itself (≥ 1.0.4). */
+  /** The tab's window bounds, from the browser itself. */
   win?: {
     left: number;
     top: number;
@@ -47,9 +56,9 @@ export interface RawPointerEvent {
   /** The reporting tab's zoom factor, attached by the background. */
   zoom?: number;
   /**
-   * Pre-normalised screen fractions from companion ≤ 1.0.1. Wrong whenever
-   * the page wasn't at 100% zoom — kept only so an outdated install keeps
-   * limping instead of breaking.
+   * Pre-normalised screen fractions, from the first companion there was.
+   * Wrong whenever the page wasn't at 100% zoom — kept only so an install
+   * that old keeps limping instead of breaking.
    */
   sx?: number;
   sy?: number;
@@ -425,7 +434,7 @@ export function buildCursorTrack(
       x = (event.screenX - display.left) / display.width;
       y = ((event.screenY ?? 0) - display.top) / display.height;
     } else if (event.screenX !== undefined && event.sw) {
-      // No display info (companion 1.0.2) — page metrics, zoom-corrected.
+      // No display info — page metrics, zoom-corrected.
       const zoom = event.zoom || 1;
       zoomMin = Math.min(zoomMin, zoom);
       zoomMax = Math.max(zoomMax, zoom);
@@ -434,7 +443,7 @@ export function buildCursorTrack(
       x = (event.screenX - (event.al ?? 0) * zoom) / (w || 1);
       y = ((event.screenY ?? 0) - (event.at ?? 0) * zoom) / (h || 1);
     } else {
-      // Companion ≤ 1.0.1 — already (possibly wrongly) normalised.
+      // The first companion — already (possibly wrongly) normalised.
       x = event.sx;
       y = event.sy;
     }
