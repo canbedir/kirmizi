@@ -254,7 +254,6 @@ export function Editor({
   const [exporting, setExporting] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const exportSupported = useMemo(() => canExportVideo(), []);
 
   const {
     duration,
@@ -305,6 +304,13 @@ export function Editor({
     cameraOn ||
     !!sceneCursor ||
     annotations.length > 0;
+  // Whether an edit with effects can be exported at all. The frame-exact path
+  // answers for itself; the real-time one answers differently depending on
+  // whether there's a scene to draw. Asking both is what keeps the warning
+  // below off a browser that was always going to manage it.
+  const exportSupported =
+    canFastExport(recording.blob, recording.mimeType) ||
+    canExportVideo(hasScene);
   // Correcting the level changes the file as surely as a cut does, so it has
   // to count as an edit — otherwise "export" would hand back the original.
   const soundTouched = !isNeutral(soundTreatment);
@@ -1306,7 +1312,7 @@ export function Editor({
         }
       }
 
-      if (!canExportVideo()) {
+      if (!canExportVideo(hasScene)) {
         saveUrl(recording.url, fullName);
         toast.error(
           "This browser can't apply those edits — saved the full recording.",

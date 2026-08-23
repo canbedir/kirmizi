@@ -208,9 +208,13 @@ one a browser without WebCodecs falls back to.
 | [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) | Lossless trims, and AAC where the browser can't encode it |
 | Cloudflare Worker + R2 + D1 | Share links, and the cron that deletes them — see [`worker/`](./worker) |
 
-Chrome, Edge and Firefox all get the frame-exact export. Safari's implementation
-is partial; the app feature-detects what it needs and says so where something is
-missing rather than failing halfway through.
+Chrome, Edge, Firefox and Safari all get the frame-exact export. Safari was the
+holdout for a long time and no longer is — as of Safari 26 it has every
+WebCodecs class the exporter needs and encodes both H.264 and AAC. That's
+checked against the real thing rather than a support table: a monthly job
+drives Safari itself on a macOS runner and reports what it found. The one thing
+it still lacks is `HTMLVideoElement.captureStream`, which only the old
+real-time path uses, and only for clips with nothing drawn over them.
 
 ## License
 

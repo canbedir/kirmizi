@@ -26,10 +26,21 @@ function captureStreamOf(video: CaptureableVideo): (() => MediaStream) | null {
   return video.captureStream ?? video.mozCaptureStream ?? null;
 }
 
-/** Whether this browser can re-encode edited clips via captureStream. */
-export function canExportVideo(): boolean {
+/**
+ * Whether this browser can re-encode here, given what's being drawn.
+ *
+ * The two branches below need two different things: a scene is drawn through
+ * a canvas and taps `canvas.captureStream`, and a clip with no scene is taken
+ * straight off the video element. Safari has the first and not the second, so
+ * asking only about the element declares a browser incapable of an export it
+ * would in fact complete.
+ */
+export function canExportVideo(withScene = false): boolean {
   if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
     return false;
+  }
+  if (withScene) {
+    return typeof document.createElement("canvas").captureStream === "function";
   }
   const probe = document.createElement("video") as CaptureableVideo;
   return captureStreamOf(probe) !== null;
