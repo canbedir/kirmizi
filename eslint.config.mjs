@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Wrangler's own build output. It's generated, it isn't committed, and
+    // its unused-variable warnings were most of what lint had to say — which
+    // is the whole problem with them: a report nobody reads is a report that
+    // hides the one line that matters.
+    "**/.wrangler/**",
   ]),
 ]);
 

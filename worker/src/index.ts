@@ -384,7 +384,7 @@ async function sweep(env: Env): Promise<number> {
 
 /* ---------------------------------------------------------------- */
 
-export default {
+const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const [, route, rest] = url.pathname.split("/");
@@ -409,3 +409,5 @@ export default {
     await sweep(env);
   },
 };
+
+export default worker;
