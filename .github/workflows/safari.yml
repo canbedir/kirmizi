@@ -1,0 +1,63 @@
+name: Safari
+
+# What Safari can do, asked of Safari.
+#
+# Not a gate and not on every push — it answers a question rather than
+# guarding a rule, and the answer only changes when Safari ships. Run it by
+# hand when that happens, and once a month so nobody has to notice.
+#
+# macOS is the only place a real Safari exists, and a runner is the only macOS
+# this project has.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # The 3rd of each month, early UTC.
+    - cron: "17 4 3 * *"
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run build
+
+      - name: Serve
+        run: bun run start &
+
+      - name: Wait for the server
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/record && exit 0
+            sleep 1
+          done
+          echo "the server never came up"; exit 1
+
+      # Safari refuses to be driven until it's told it may be.
+      - name: Allow remote automation
+        run: sudo safaridriver --enable
+
+      - name: Start safaridriver
+        run: |
+          safaridriver -p 4444 &
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:4444/status && exit 0
+            sleep 1
+          done
+          echo "safaridriver never answered"; exit 1
+
+      - name: Probe
+        run: node test/browser/safari-probe.mjs | tee safari-report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: safari-report
+          path: safari-report.json
