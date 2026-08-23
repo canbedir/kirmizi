@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test",
+    "test:browser": "node test/browser/export.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:worker": "tsc -p worker"
   },
@@ -40,6 +41,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "playwright-core": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^4.121.0"

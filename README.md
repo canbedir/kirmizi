@@ -178,14 +178,22 @@ Without it, everything else works exactly as before.
 
 ```bash
 bun install
-bun dev     # http://localhost:3000
-bun test    # the maths: timeline, geometry, loudness, stored edits, share limits
+bun dev              # http://localhost:3000
+bun test             # the maths: timeline, geometry, loudness, stored edits, share limits
+bun run test:browser # the export, end to end, in a real browser (needs bun dev)
 ```
 
 `getDisplayMedia` needs a secure context, so recording works on `localhost` and
-over HTTPS. The pure logic is covered by **270 tests** that run in well under a
-second; anything touching an `AudioContext`, WebCodecs or the DOM is checked in a
-real browser instead.
+over HTTPS. The pure logic is covered by **289 tests** that run in well under a
+second.
+
+The exporter can't be reached from there — it wants MediaRecorder, WebCodecs and
+a canvas — so it gets a browser of its own. `test:browser` fakes the one API
+that needs a human, records the fake screen for real, frames the clip, exports
+it, and reads the file back to check that the recording is still in the middle
+of the frame and the background was rendered into it rather than faked in the
+preview. Both export paths are covered: the frame-exact one, and the real-time
+one a browser without WebCodecs falls back to.
 
 ## How it is built
 
