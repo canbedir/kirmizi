@@ -104,11 +104,22 @@ export async function recordInEditor({ seconds = 3, breakWebCodecs = false } = {
   // presses R into nothing is worse than no test.
   const record = page.locator("button:has-text('Start recording')");
   await record.waitFor({ timeout: 60_000 });
-  await record.click();
 
-  // The picker is faked, so what follows is the 3s countdown and then the HUD.
+  // Being visible is not the same as being wired up. The button is rendered
+  // on the server and only answers once React has hydrated it, so a click can
+  // land on it and do nothing at all — which then looks exactly like a
+  // recorder that failed to start. Ask again rather than wait forever.
   const stop = page.locator("button:has-text('Stop recording')");
-  await stop.waitFor({ timeout: 60_000 });
+  let started = false;
+  for (let attempt = 0; attempt < 4 && !started; attempt++) {
+    await record.click({ timeout: 10_000 }).catch(() => {});
+    // The picker is faked, so this is the 3s countdown and then the HUD.
+    started = await stop
+      .waitFor({ timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+  if (!started) throw new Error("the recorder never started");
   await page.waitForTimeout(seconds * 1000);
   await stop.click();
 
