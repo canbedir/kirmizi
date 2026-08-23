@@ -169,8 +169,36 @@ export interface TrackBuildOptions {
   capture?: { width: number; height: number } | null;
 }
 
-/** How far a window's shape may sit from the capture's and still be it. */
+/** How far a surface's shape may sit from the capture's and still be it. */
 const SHAPE_TOLERANCE = 0.02;
+
+/**
+ * How much of the pointer has to be on one screen to call it the recorded one.
+ *
+ * People work on the screen they are recording, so the pointer being almost
+ * entirely on one of them is strong evidence. Set high because the cost of
+ * being wrong is a zoom into the wrong monitor's worth of nothing.
+ */
+const SCREEN_MAJORITY = 0.8;
+
+/**
+ * How far past the frame's edge a position may sit and still be counted as on
+ * it — rounding, display scaling and window borders the browser draws but
+ * doesn't report all cost a pixel or two at the very edge.
+ */
+const EDGE_MARGIN = 0.02;
+
+/** Whether a rectangle has the captured frame's proportions. */
+function shapeMatches(
+  width: number,
+  height: number,
+  capture: { width: number; height: number } | null | undefined,
+): boolean {
+  if (width <= 0 || height <= 0) return false;
+  if (!capture || capture.width <= 0 || capture.height <= 0) return false;
+  const captured = capture.width / capture.height;
+  return Math.abs(width / height - captured) <= captured * SHAPE_TOLERANCE;
+}
 
 /**
  * Where a click landed inside its own window, as fractions of that window.
@@ -211,12 +239,93 @@ function windowIsCaptured(
   win: RawPointerEvent["win"],
   capture: { width: number; height: number } | null | undefined,
 ): boolean {
-  if (!win || win.width <= 0 || win.height <= 0) return false;
-  if (!capture || capture.width <= 0 || capture.height <= 0) return false;
-  const captured = capture.width / capture.height;
+  return !!win && shapeMatches(win.width, win.height, capture);
+}
+
+/**
+ * Where this event was on the desktop, in the space display bounds use.
+ *
+ * Preferring the reconstruction over the page's own screenX for the same
+ * reason the normalising below does: a window's real bounds plus a genuine
+ * in-page position survive anti-fingerprinting, and a reported screenX
+ * doesn't always. The raw figure is the fallback for events without one.
+ */
+function onScreen(event: RawPointerEvent): { x: number; y: number } | null {
+  const win = event.win;
+  if (event.cx !== undefined && win && win.width > 0 && event.iw) {
+    const zoom = event.zoom || 1;
+    const border = Math.max(0, (win.width - event.iw * zoom) / 2);
+    const chromeTop = Math.max(0, win.height - (event.ih ?? 0) * zoom - border);
+    return {
+      x: win.left + border + event.cx * zoom,
+      y: win.top + chromeTop + (event.cy ?? 0) * zoom,
+    };
+  }
+  if (event.screenX !== undefined) {
+    return { x: event.screenX, y: event.screenY ?? 0 };
+  }
+  return null;
+}
+
+function contains(
+  display: DisplayBounds,
+  point: { x: number; y: number },
+): boolean {
   return (
-    Math.abs(win.width / win.height - captured) <= captured * SHAPE_TOLERANCE
+    point.x >= display.left &&
+    point.x < display.left + display.width &&
+    point.y >= display.top &&
+    point.y < display.top + display.height
   );
+}
+
+/**
+ * Which screen the recording is of, or nothing if it can't be settled.
+ *
+ * A whole-screen capture is measured against one display's bounds, and with
+ * several attached nothing in the stream says which. Two independent signals
+ * are made to agree instead — the same standard the dead-air cut is held to.
+ *
+ * Shape narrows the field: the capture has the recorded screen's proportions,
+ * so a display shaped otherwise is out. That alone rarely decides it, since
+ * two 16:9 monitors are the ordinary case, so the pointer settles the rest:
+ * whichever surviving display it spent the recording on is the one being
+ * watched. Short of a clear majority they disagree, and disagreement means
+ * no cursor track rather than a guess.
+ */
+function chooseDisplay(
+  events: RawPointerEvent[],
+  displays: DisplayBounds[] | null | undefined,
+  capture: { width: number; height: number } | null | undefined,
+): DisplayBounds | null {
+  if (!displays || displays.length === 0) return null;
+  // One screen is the screen; there was never anything to choose between.
+  if (displays.length === 1) return displays[0];
+
+  const shaped = displays.filter((d) => shapeMatches(d.width, d.height, capture));
+  if (shaped.length === 0) return null;
+  if (shaped.length === 1) return shaped[0];
+
+  const seen = new Map<DisplayBounds, number>();
+  let placed = 0;
+  for (const event of events) {
+    const point = onScreen(event);
+    if (!point) continue;
+    placed++;
+    const hit = shaped.find((d) => contains(d, point));
+    if (hit) seen.set(hit, (seen.get(hit) ?? 0) + 1);
+  }
+  if (placed === 0) return null;
+
+  let best: DisplayBounds | null = null;
+  let bestCount = 0;
+  for (const [display, count] of seen) {
+    if (count > bestCount) {
+      best = display;
+      bestCount = count;
+    }
+  }
+  return best && bestCount / placed >= SCREEN_MAJORITY ? best : null;
 }
 
 /**
@@ -236,13 +345,19 @@ export function buildCursorTrack(
   const useViewport = displaySurface === "browser";
   const useWindow = displaySurface === "window";
 
-  // The display we normalise against: the OS's own bounds for the (single)
-  // screen, in the very coordinate space event.screenX is measured in. Pages
-  // have proven unable to report their screen honestly — zoom, fingerprint
-  // shielding, and scaled desktops all distort screen.width — so the page's
-  // metrics are only a fallback for an outdated companion.
-  const display =
-    displays?.find((d) => d.primary) ?? displays?.[0] ?? null;
+  // The display we normalise against: the OS's own bounds, in the very
+  // coordinate space event.screenX is measured in. Pages have proven unable
+  // to report their screen honestly — zoom, fingerprint shielding, and scaled
+  // desktops all distort screen.width — so the page's metrics are only a
+  // fallback for an outdated companion.
+  const display = chooseDisplay(events, displays, capture);
+
+  // Bounds were offered but none could be matched to the capture. That's an
+  // unsettled question rather than licence to fall back to the page's own
+  // metrics, which are wronger still on the multi-screen desktop that got us
+  // here — so the whole track is given up instead.
+  const unsettled =
+    !useViewport && !useWindow && !!displays?.length && !display;
 
   const samples: CursorSample[] = [];
   const clicks: CursorClick[] = [];
@@ -251,7 +366,7 @@ export function buildCursorTrack(
   let zoomMax = -Infinity;
   let usedWindowGeometry = false;
 
-  for (const event of events) {
+  for (const event of unsettled ? [] : events) {
     if (pauses.some((p) => event.t >= p.start && event.t <= p.end)) continue;
     let paused = 0;
     for (const p of pauses) {
@@ -331,6 +446,15 @@ export function buildCursorTrack(
     ) {
       continue;
     }
+    // A position off the captured surface is not a position on it. The
+    // pointer leaves — onto the second monitor, outside the recorded window
+    // — and what it does there isn't in the video and can't be marked or
+    // zoomed into. The margin forgives an edge click that rounding, or a
+    // window border the browser doesn't draw, pushes a hair past the end.
+    if (x < -EDGE_MARGIN || x > 1 + EDGE_MARGIN) continue;
+    if (y < -EDGE_MARGIN || y > 1 + EDGE_MARGIN) continue;
+    x = Math.min(1, Math.max(0, x));
+    y = Math.min(1, Math.max(0, y));
     const at = Math.max(0, t);
 
     samples.push({ t: at, x, y });
@@ -363,23 +487,19 @@ export function buildCursorTrack(
  * on the pixel. A single screen is exact too — display scaling cancels out
  * once both sides are normalised.
  *
- * A window is measured against itself, which needs no screen at all, so the
- * monitors don't come into it. Whether the window we hear from is the one
- * being recorded can't be settled until the events are in, so collecting is
- * allowed here and the shape check happens in buildCursorTrack.
+ * A window is measured against itself, which needs no screen at all. A screen
+ * is measured against its own bounds, which on a desktop spanning several of
+ * them means working out which — and neither question can be settled until
+ * the events are in.
  *
- * More than one screen is where the whole-screen capture breaks down.
- * Coordinates are measured from the whole virtual desktop, and nothing tells
- * us which of the screens the user picked, so anything drawn from them can
- * land on the wrong part of the frame — or the wrong monitor entirely. Better
- * to collect nothing than to put the zoom somewhere the user didn't click.
+ * So this decides only whether there's a coordinate space worth collecting
+ * for at all. Whether what arrives can actually be placed is buildCursorTrack's
+ * to answer, and it gives up the track rather than guess.
  */
 export function surfaceSupportsCursor(displaySurface?: string): boolean {
-  if (displaySurface === "browser") return true;
-  if (displaySurface === "window") return true;
-  if (displaySurface !== "monitor") return false;
-  const extended =
-    typeof screen !== "undefined" &&
-    (screen as Screen & { isExtended?: boolean }).isExtended;
-  return !extended;
+  return (
+    displaySurface === "browser" ||
+    displaySurface === "window" ||
+    displaySurface === "monitor"
+  );
 }

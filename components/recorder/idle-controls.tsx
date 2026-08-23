@@ -21,8 +21,6 @@ interface IdleControlsProps {
   onCameraChange: (enabled: boolean) => void;
   /** The companion extension is connected, so the cursor will be tracked. */
   companionReady?: boolean;
-  /** The desktop spans more than one screen, which limits cursor tracking. */
-  extended?: boolean;
   settings: RecorderSettingsType;
   onSettingsChange: (patch: Partial<RecorderSettingsType>) => void;
 }
@@ -35,7 +33,6 @@ export function IdleControls({
   cameraEnabled,
   onCameraChange,
   companionReady,
-  extended,
   settings,
   onSettingsChange,
 }: IdleControlsProps) {
@@ -156,9 +153,7 @@ export function IdleControls({
           <MousePointer2 className="size-3.5 shrink-0 text-red" />
           Cursor tracking on
           <span className="text-muted-foreground">
-            {extended
-              ? "record a tab or a window — clicks can't be placed on a multi-screen desktop"
-              : "auto zoom · click effects"}
+            auto zoom · click effects
           </span>
         </span>
       ) : (

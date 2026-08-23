@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCursorTrack,
   surfaceSupportsCursor,
+  type DisplayBounds,
   type RawPointerEvent,
 } from "@/lib/companion";
 
@@ -149,13 +150,143 @@ describe("window capture", () => {
 });
 
 describe("which surfaces are allowed to collect", () => {
-  test("a tab and a window both are", () => {
+  test("a tab, a window and a screen all are", () => {
     expect(surfaceSupportsCursor("browser")).toBe(true);
     expect(surfaceSupportsCursor("window")).toBe(true);
+    expect(surfaceSupportsCursor("monitor")).toBe(true);
   });
 
   test("anything unrecognised isn't", () => {
     expect(surfaceSupportsCursor(undefined)).toBe(false);
     expect(surfaceSupportsCursor("something-new")).toBe(false);
+  });
+});
+
+// Which screen a whole-desktop capture is of. Two signals have to agree: the
+// capture carries the recorded screen's shape, and the pointer spends the
+// recording on it. Where they don't, the track is given up — a zoom into the
+// wrong monitor is worse than no zoom.
+
+/** Two 16:9 screens side by side; the second is where the work happens. */
+const LEFT: DisplayBounds = {
+  left: 0,
+  top: 0,
+  width: 1920,
+  height: 1080,
+  primary: true,
+};
+const RIGHT: DisplayBounds = { left: 1920, top: 0, width: 1920, height: 1080 };
+/** A 16:10 screen, so shape alone can tell it apart. */
+const TALL: DisplayBounds = { left: 1920, top: 0, width: 1920, height: 1200 };
+
+/** A pointer sitting still somewhere on the desktop. */
+function atScreen(x: number, y: number): RawPointerEvent {
+  return { t: STARTED + 1000, screenX: x, screenY: y, click: 0 };
+}
+
+const onDisplays = (
+  events: RawPointerEvent[],
+  displays: DisplayBounds[] | null,
+  capture: { width: number; height: number } | null,
+) =>
+  buildCursorTrack(events, {
+    startedAt: STARTED,
+    pauses: [],
+    displaySurface: "monitor",
+    displays,
+    capture,
+  });
+
+describe("choosing the recorded screen", () => {
+  test("one screen needs no choosing, and needs no capture size either", () => {
+    const track = onDisplays([atScreen(960, 540)], [LEFT], null);
+    expect(track.clicks[0].x).toBeCloseTo(0.5, 5);
+    expect(track.clicks[0].y).toBeCloseTo(0.5, 5);
+  });
+
+  test("the pointer picks between two screens of the same shape", () => {
+    // Every click is on the right-hand screen, so that's the one recorded.
+    const track = onDisplays(
+      [atScreen(2880, 540), atScreen(2880, 270), atScreen(2880, 810)],
+      [LEFT, RIGHT],
+      { width: 1920, height: 1080 },
+    );
+    expect(track.clicks).toHaveLength(3);
+    // 2880 is the middle of the right screen, not 1.5 across the left one.
+    expect(track.clicks[0].x).toBeCloseTo(0.5, 5);
+  });
+
+  test("shape rules out a screen the capture can't be of", () => {
+    // The capture is 16:9, so the 16:10 screen is out and the 16:9 one is
+    // what's being recorded. The pointer spent its time on the other, which
+    // isn't in the video — so there is nothing here to mark.
+    const track = onDisplays([atScreen(2880, 600)], [LEFT, TALL], {
+      width: 1920,
+      height: 1080,
+    });
+    expect(track.samples).toHaveLength(0);
+  });
+
+  test("strays onto the other screen are dropped, not folded in", () => {
+    // Four clicks on the right screen and one on the left: the right one is
+    // being recorded, and the stray isn't in the video to be marked.
+    const track = onDisplays(
+      [
+        atScreen(2880, 540),
+        atScreen(2400, 300),
+        atScreen(3400, 800),
+        atScreen(2880, 200),
+        atScreen(500, 540),
+      ],
+      [LEFT, RIGHT],
+      { width: 1920, height: 1080 },
+    );
+    expect(track.clicks).toHaveLength(4);
+    for (const c of track.clicks) {
+      expect(c.x).toBeGreaterThanOrEqual(0);
+      expect(c.x).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("a click on the very edge survives the rounding that took it past", () => {
+    const track = onDisplays([atScreen(1919, 1079)], [LEFT], null);
+    expect(track.clicks).toHaveLength(1);
+    expect(track.clicks[0].x).toBeLessThanOrEqual(1);
+    expect(track.clicks[0].x).toBeGreaterThan(0.99);
+  });
+
+  test("a pointer split across both screens settles nothing", () => {
+    const track = onDisplays(
+      [atScreen(960, 540), atScreen(2880, 540)],
+      [LEFT, RIGHT],
+      { width: 1920, height: 1080 },
+    );
+    expect(track.samples).toHaveLength(0);
+  });
+
+  test("an unsettled desktop never falls back to the page's own metrics", () => {
+    // The old fallback path would happily normalise these against sw/sh and
+    // produce confident nonsense. Bounds were offered, so silence is right.
+    const track = onDisplays(
+      [
+        { t: STARTED + 1000, screenX: 960, screenY: 540, sw: 1920, sh: 1080 },
+        { t: STARTED + 1100, screenX: 2880, screenY: 540, sw: 1920, sh: 1080 },
+      ],
+      [LEFT, RIGHT],
+      { width: 1920, height: 1080 },
+    );
+    expect(track.samples).toHaveLength(0);
+  });
+
+  test("with no bounds at all the page-metrics fallback still runs", () => {
+    // An outdated companion reports no displays; that's a different case from
+    // reporting some we couldn't match, and it keeps its old behaviour.
+    const track = onDisplays(
+      [{ t: STARTED + 1000, screenX: 960, screenY: 540, sw: 1920, sh: 1080 }],
+      null,
+      { width: 1920, height: 1080 },
+    );
+    expect(track.samples).toHaveLength(1);
+    expect(track.space).toBe("page-metrics");
   });
 });

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import { useScreenRecorder, type Recording } from "@/lib/use-screen-recorder";
 import { useMediaSupport } from "@/lib/use-media-support";
@@ -31,12 +26,6 @@ function fileExt(mimeType: string): string {
   return mimeType.includes("mp4") ? "mp4" : "webm";
 }
 
-/** Plugging in or unplugging a display resizes the window's screen. */
-function subscribeToDisplays(onChange: () => void): () => void {
-  window.addEventListener("resize", onChange);
-  return () => window.removeEventListener("resize", onChange);
-}
-
 export function RecorderShell() {
   const support = useMediaSupport();
   const recorder = useScreenRecorder();
@@ -51,13 +40,6 @@ export function RecorderShell() {
     id: string | null;
   } | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
-  // Whether the desktop spans more than one screen — read from the platform
-  // rather than mirrored into state, and re-read if the layout changes.
-  const extended = useSyncExternalStore(
-    subscribeToDisplays,
-    () => !!(screen as Screen & { isExtended?: boolean }).isExtended,
-    () => false,
-  );
 
   // The mic/camera toggles live in the persisted settings so a setup carries
   // over between visits.
@@ -309,7 +291,6 @@ export function RecorderShell() {
               cameraEnabled={cameraEnabled}
               onCameraChange={(v) => patchSettings({ cameraEnabled: v })}
               companionReady={companionReady}
-              extended={extended}
               settings={settings}
               onSettingsChange={patchSettings}
             />
