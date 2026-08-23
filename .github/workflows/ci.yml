@@ -1,0 +1,51 @@
+name: CI
+
+# What has to hold before anything reaches main.
+#
+# The order is deliberate: the checks run cheapest first, so a broken build
+# is reported by the thing that explains it rather than by the four minutes
+# of compilation that happened to notice. Nothing here needs a secret — the
+# app builds with the defaults in lib/site.ts — so it runs on forks too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push makes the run before it pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # The maths the editor rests on: timeline, geometry, loudness, stored
+      # edits, cursor placement and the share endpoint's limits. Under a
+      # second, so it goes first.
+      - name: Tests
+        run: bun test
+
+      - name: Types
+        run: bun run typecheck
+
+      # The Worker is its own project with its own tsconfig, and the root one
+      # excludes it — without this it would never be checked at all.
+      - name: Types (worker)
+        run: bun run typecheck:worker
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Build
+        run: bun run build
