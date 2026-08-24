@@ -33,7 +33,7 @@ export function CameraPanel({
   onToggleHidden: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface/60 p-3">
+    <div className="flex flex-wrap items-center gap-3">
       <span className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
         Camera
       </span>

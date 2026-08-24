@@ -89,7 +89,7 @@ import {
   CursorPanel,
 } from "@/components/recorder/cursor-panel";
 import { SoundPanel } from "@/components/recorder/sound-panel";
-import { PacePanel } from "@/components/recorder/pace-panel";
+import { TightenButton } from "@/components/recorder/pace-panel";
 import { findDeadAir } from "@/lib/dead-air";
 import { getEdits, saveEdits } from "@/lib/recordings-store";
 import {
@@ -171,6 +171,28 @@ function sliderValue(value: number | readonly number[]): number {
   return Array.isArray(value) ? (value[0] as number) : (value as number);
 }
 
+/**
+ * The rail's tabs, in the order they're offered.
+ *
+ * Always all four. A tab that appears only when the recording happens to
+ * contain the right thing gives the panel a different address every time,
+ * which is most of what made the old stack hard to learn — so Clicks greys
+ * out with a reason rather than going missing.
+ */
+const RAIL_TABS = [
+  { id: "frame", label: "Frame", absent: "" },
+  { id: "sound", label: "Sound", absent: "" },
+  { id: "marks", label: "Marks", absent: "" },
+  {
+    id: "clicks",
+    label: "Clicks",
+    absent:
+      "Nothing was recorded about the pointer — this needs the companion extension.",
+  },
+] as const;
+
+type RailTab = (typeof RAIL_TABS)[number]["id"];
+
 export function Editor({
   recording,
   editKey,
@@ -251,6 +273,7 @@ export function Editor({
   // you can't aim a rectangle at something you can no longer see.
   const [cropping, setCropping] = useState(false);
   const shownCrop = cropping ? FULL_CROP : crop;
+  const [tab, setTab] = useState<RailTab>("frame");
   const [exporting, setExporting] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -298,6 +321,9 @@ export function Editor({
     [cursorTrack, cursorStyle],
   );
 
+  // The Clicks tab has something to say either way: the controls when there
+  // is pointer data, or the reason there isn't.
+  const clicksTab = !!cursorTrack || !!recording.cursorMiss;
   const cameraOn = !!camera && !camHidden;
   const hasScene =
     sceneActive(frameStyle, zooms, crop) ||
@@ -1364,7 +1390,17 @@ export function Editor({
     camera && dims.w > 0 ? cameraGeometry(camLayout, stageRect) : null;
 
   return (
-    <div ref={containerRef} className="flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full max-w-6xl flex-col gap-5">
+      {/* Two columns, and the split is what each half is *about*: on the left
+          the clip and its time — what you look at and cut; on the right how
+          the clip looks — what you set once and leave. The rail is measured
+          rather than fluid, because a control panel that reflows with the
+          window has no shape to remember.
+
+          containerRef is on the left column and not the wrapper: it's what
+          the timeline scales itself to, and it must not count the rail. */}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div ref={containerRef} className="flex min-w-0 flex-col gap-5">
       <div className="relative">
         {/* The stage mirrors the export scene: background, padded video with
             rounded corners and shadow, and the live zoom transform. */}
@@ -1684,6 +1720,22 @@ export function Editor({
               Zoom
             </Button>
 
+            {/* Cutting the dead air is cutting, so it belongs here and not in
+                a panel. It needs something to have measured first. */}
+            {(cursorTrack || soundState.status !== "silent") && (
+              <TightenButton
+                report={deadAir}
+                measuring={soundState.status === "measuring"}
+                onTighten={() => {
+                  pause();
+                  editor.cutRanges(deadAir.ranges);
+                  toast.success("Tightened", {
+                    description: `Cut ${formatDuration(deadAir.removed * 1000)} of dead air — Ctrl+Z puts it back.`,
+                  });
+                }}
+              />
+            )}
+
             <span className="ml-auto font-mono text-xs text-muted-foreground/70">
               {selectedZoom
                 ? "zoom selected"
@@ -1736,121 +1788,154 @@ export function Editor({
             </div>
           )}
 
-          <AnnotatePanel
-            annotations={annotations}
-            selected={selectedAnnotation}
-            onAdd={handleAddAnnotation}
-            onSelect={handleSelectAnnotation}
-            onRemove={editor.removeAnnotation}
-            onChange={(id, patch) => {
-              if (patch.color) lastMarkColorRef.current = patch.color;
-              editor.updateAnnotation(id, patch);
-            }}
-            onCheckpoint={editor.checkpoint}
-          />
+          <p className="text-center font-mono text-xs text-muted-foreground/70">
+            <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Z</Kbd> zoom ·{" "}
+            <Kbd>Del</Kbd> delete · <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom ·{" "}
+            <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd> undo
+          </p>
+        </>
+      )}
+        </div>
 
-          <FramePanel
-            style={frameStyle}
-            onChange={applyFrameStyle}
-            crop={crop}
-            cropping={cropping}
-            source={dims}
-            onToggleCrop={() => setCropping((on) => !on)}
-            onCrop={(next) => {
-              setCrop(clampCrop(next));
-              if (isFullCrop(next)) setCropping(false);
-            }}
-            sampleColors={sampleColors}
-          />
+        {/* The rail: how the clip looks, one thing at a time.
 
-          <SoundPanel
-            style={soundStyle}
-            state={soundState}
-            onChange={applySoundStyle}
-          />
+            Four tabs, always four — a panel that comes and goes with what the
+            recording happens to contain leaves nothing to remember. Clicks
+            and Camera grey out with a reason instead of vanishing.
 
-          {(cursorTrack || soundState.status !== "silent") && (
-            <PacePanel
-              report={deadAir}
-              measuring={soundState.status === "measuring"}
-              onTighten={() => {
-                pause();
-                editor.cutRanges(deadAir.ranges);
-                toast.success("Tightened", {
-                  description: `Cut ${formatDuration(deadAir.removed * 1000)} of dead air — Ctrl+Z puts it back.`,
-                });
-              }}
-            />
-          )}
+            It sticks, and scrolls inside itself, so the export button is
+            reachable from anywhere in a long panel. */}
+        {ready && (
+          <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface/40 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]">
+            <div
+              role="tablist"
+              aria-label="Clip controls"
+              className="grid shrink-0 grid-cols-4 border-b border-border"
+            >
+              {RAIL_TABS.map((t) => {
+                const off = t.id === "clicks" && !clicksTab;
+                return (
+                  <button
+                    key={t.id}
+                    role="tab"
+                    type="button"
+                    aria-selected={tab === t.id}
+                    disabled={off}
+                    title={off ? t.absent : undefined}
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      "border-b-2 px-1 py-2.5 text-sm font-medium transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/40",
+                      tab === t.id
+                        ? "border-red text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                      off && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
 
-          {cursorTrack ? (
-            <CursorPanel
-              style={cursorStyle}
-              clickCount={cursorTrack.clicks.length}
-              zoomCount={zooms.filter((z) => z.auto).length}
-              onChange={applyCursorStyle}
-            />
-          ) : recording.cursorMiss ? (
-            <CursorMissNote
-              miss={recording.cursorMiss}
-              surface={recording.capture?.displaySurface}
-            />
-          ) : null}
-
-          {camera && (
-            <CameraPanel
-              layout={camLayout}
-              hidden={camHidden}
-              onChange={setCamLayout}
-              onToggleHidden={() => setCamHidden((h) => !h)}
-            />
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-col-reverse items-center gap-4 border-t border-border pt-5 sm:flex-row sm:justify-between">
-            <p className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
-              <span className="rounded border border-border px-1.5 py-0.5 text-xs text-foreground">
-                {format}
-              </span>
-              {formatBytes(recording.size)}
-              {edited && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="text-red">
-                    clip {formatDuration(editor.editedDuration * 1000)}
-                  </span>
-                </>
+            {/* The panels used to draw their own bordered box because they
+                were stacked in the page and needed telling apart. The rail is
+                the box now, and only one of them is ever in it, so the boxes
+                came off at the source rather than being overridden here. */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {tab === "frame" && (
+                <div className="flex flex-col gap-3">
+                  <FramePanel
+                    style={frameStyle}
+                    onChange={applyFrameStyle}
+                    crop={crop}
+                    cropping={cropping}
+                    source={dims}
+                    onToggleCrop={() => setCropping((on) => !on)}
+                    onCrop={(next) => {
+                      setCrop(clampCrop(next));
+                      if (isFullCrop(next)) setCropping(false);
+                    }}
+                    sampleColors={sampleColors}
+                  />
+                  {/* The bubble is part of how the picture is arranged, so it
+                      lives with the rest of the arranging — under a rule,
+                      because it is still its own subject. */}
+                  {camera && (
+                    <div className="border-t border-border pt-3">
+                      <CameraPanel
+                        layout={camLayout}
+                        hidden={camHidden}
+                        onChange={setCamLayout}
+                        onToggleHidden={() => setCamHidden((h) => !h)}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
-            </p>
-
-            <div className="flex items-center gap-2">
-              {canShare() && (
-                // Secondary on purpose. Downloading is what this app does;
-                // sending a copy somewhere is the exception you opt into.
-                <Button
-                  variant="outline"
-                  onClick={() => setSharing(true)}
-                  disabled={exporting}
-                  className="gap-2"
-                  title="Upload a copy and get a link to it"
-                >
-                  <Link2 className="size-4" />
-                  Get a link
-                </Button>
+              {tab === "sound" && (
+                <SoundPanel
+                  style={soundStyle}
+                  state={soundState}
+                  onChange={applySoundStyle}
+                />
               )}
-              <Button
-                variant="outline"
-                onClick={onReset}
-                disabled={exporting}
-                className="gap-2"
-              >
-                <RotateCcw className="size-4" />
-                Record again
-              </Button>
+              {tab === "marks" && (
+                <AnnotatePanel
+                  annotations={annotations}
+                  selected={selectedAnnotation}
+                  onAdd={handleAddAnnotation}
+                  onSelect={handleSelectAnnotation}
+                  onRemove={editor.removeAnnotation}
+                  onChange={(id, patch) => {
+                    if (patch.color) lastMarkColorRef.current = patch.color;
+                    editor.updateAnnotation(id, patch);
+                  }}
+                  onCheckpoint={editor.checkpoint}
+                />
+              )}
+              {tab === "clicks" &&
+                (cursorTrack ? (
+                  <CursorPanel
+                    style={cursorStyle}
+                    clickCount={cursorTrack.clicks.length}
+                    zoomCount={zooms.filter((z) => z.auto).length}
+                    onChange={applyCursorStyle}
+                  />
+                ) : recording.cursorMiss ? (
+                  <CursorMissNote
+                    miss={recording.cursorMiss}
+                    surface={recording.capture?.displaySurface}
+                  />
+                ) : null)}
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-3 border-t border-border p-3">
+              {/* Actions.
+                  Stacked, because the rail is 20rem and the old row put the
+                  export button off the edge of it. Export is the whole width
+                  and the only coloured thing here; a link and a re-take share
+                  the line under it, which is the order of how often each is
+                  wanted. */}
+              <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <span className="rounded border border-border px-1.5 py-0.5 text-foreground">
+                  {format}
+                </span>
+                {formatBytes(recording.size)}
+                {edited && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="text-red">
+                      clip {formatDuration(editor.editedDuration * 1000)}
+                    </span>
+                  </>
+                )}
+              </div>
+
               <Button
                 onClick={handleExport}
                 disabled={exporting}
-                className="gap-2 bg-red text-red-foreground hover:bg-red-hover"
+                className="w-full gap-2 bg-red text-red-foreground hover:bg-red-hover"
               >
                 {exporting ? (
                   <>
@@ -1866,24 +1951,46 @@ export function Editor({
                   </>
                 )}
               </Button>
+
+              <div className="flex items-center gap-2">
+                {canShare() && (
+                  // Secondary on purpose. Downloading is what this app does;
+                  // sending a copy somewhere is the exception you opt into.
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSharing(true)}
+                    disabled={exporting}
+                    className="flex-1 gap-1.5"
+                    title="Upload a copy and get a link to it"
+                  >
+                    <Link2 className="size-3.5" />
+                    Get a link
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onReset}
+                  disabled={exporting}
+                  className="flex-1 gap-1.5"
+                >
+                  <RotateCcw className="size-3.5" />
+                  Record again
+                </Button>
+              </div>
+
+              {!exportSupported && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Trims export losslessly here; speed, mute, zoom, and frame edits
+                  aren&apos;t supported in this browser (you&apos;d get the full
+                  recording).
+                </p>
+              )}
             </div>
-          </div>
-
-          {!exportSupported && (
-            <p className="text-center text-xs text-muted-foreground">
-              Trims export losslessly here; speed, mute, zoom, and frame edits
-              aren&apos;t supported in this browser (you&apos;d get the full
-              recording).
-            </p>
-          )}
-
-          <p className="text-center font-mono text-xs text-muted-foreground/70">
-            <Kbd>Space</Kbd> play · <Kbd>S</Kbd> split · <Kbd>Z</Kbd> zoom ·{" "}
-            <Kbd>Del</Kbd> delete · <Kbd>M</Kbd> mute · <Kbd>+/–</Kbd> zoom ·{" "}
-            <Kbd>Ctrl</Kbd>+<Kbd>Z</Kbd> undo
-          </p>
-        </>
-      )}
+          </aside>
+        )}
+      </div>
 
       <ShareDialog
         open={sharing}

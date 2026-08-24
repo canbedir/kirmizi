@@ -69,7 +69,7 @@ export function AnnotatePanel({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           Marks
@@ -216,7 +216,7 @@ export function AnnotatePanel({
                 beginEdit();
                 onChange(selected.id, { color });
               }}
-              className="w-full sm:max-w-52"
+              className="w-full"
             />
           )}
         </div>

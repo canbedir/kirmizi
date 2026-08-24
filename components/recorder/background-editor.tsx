@@ -173,11 +173,11 @@ export function BackgroundEditor({
   const gradient = value.kind === "linear";
 
   return (
-    <div className="flex flex-col gap-4 rounded-md border border-border bg-background/40 p-3 sm:flex-row">
+    <div className="flex flex-col gap-4 rounded-md border border-border bg-background/40 p-3">
       <ColorPicker
         value={colors[index]}
         onChange={(color) => onChange(withColor(value, index, color))}
-        className="w-full shrink-0 sm:w-52"
+        className="w-full shrink-0"
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-3">

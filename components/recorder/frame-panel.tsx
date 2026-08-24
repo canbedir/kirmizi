@@ -140,7 +140,7 @@ export function FramePanel({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface/60 p-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           Frame
@@ -358,7 +358,7 @@ export function FramePanel({
         </span>
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:gap-5">
+      <div className="flex flex-col gap-2">
         <LabeledSlider
           label="padding"
           value={style.padding}
