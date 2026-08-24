@@ -172,6 +172,13 @@ function sliderValue(value: number | readonly number[]): number {
 }
 
 /**
+ * Everything on the page that isn't the stage, in pixels: the header, the
+ * transport, the timeline, the toolbar, the shortcut line, the gaps and the
+ * page's bottom padding. The stage gets whatever height is left.
+ */
+const STAGE_BUDGET = 420;
+
+/**
  * The rail's tabs, in the order they're offered.
  *
  * Always all four. A tab that appears only when the recording happens to
@@ -906,6 +913,26 @@ export function Editor({
   const reframed = dims.w > 0 && (frame.w !== dims.w || frame.h !== dims.h);
   // Anything but the raw capture at its own shape gets the laid-out stage.
   const framed = styled || reframed || cropped;
+  /**
+   * How wide the stage may be, expressed as a budget of viewport height.
+   *
+   * The stage was only ever told how wide to be, and took whatever height
+   * that implied — so on a short window it pushed the timeline off the
+   * bottom, and the page scrolled past content that had already ended.
+   * Capping the width by the shape gives the same result as capping the
+   * height would, without cropping the picture to do it.
+   *
+   * The budget is what's left of the window once everything that isn't the
+   * stage has been paid for: the page header, the transport, the timeline,
+   * the toolbar, the shortcut line and the gaps between them. That total is
+   * a fixed number of pixels rather than a share of the height, which is why
+   * a plain `vh` fraction fits one window size and overflows the next.
+   */
+  const stageRatio = framed
+    ? frame.w / frame.h
+    : dims.h > 0
+      ? dims.w / dims.h
+      : 0;
   const stagePs = frame.w > 0 && containerWidth > 0 ? containerWidth / frame.w : 0;
   const stageRect = framed
     ? videoRect(frame.w, frame.h, styled ? frameStyle.padding : 0, kept.w, kept.h)
@@ -1390,7 +1417,7 @@ export function Editor({
     camera && dims.w > 0 ? cameraGeometry(camLayout, stageRect) : null;
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-5">
+    <div className="flex w-full max-w-[88rem] flex-col gap-5">
       {/* Two columns, and the split is what each half is *about*: on the left
           the clip and its time — what you look at and cut; on the right how
           the clip looks — what you set once and leave. The rail is measured
@@ -1399,9 +1426,18 @@ export function Editor({
 
           containerRef is on the left column and not the wrapper: it's what
           the timeline scales itself to, and it must not count the rail. */}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <div ref={containerRef} className="flex min-w-0 flex-col gap-5">
-      <div className="relative">
+      <div
+        className="relative mx-auto w-full"
+        style={
+          stageRatio > 0
+            ? {
+                maxWidth: `calc(max(14rem, 100vh - ${STAGE_BUDGET}px) * ${stageRatio})`,
+              }
+            : undefined
+        }
+      >
         {/* The stage mirrors the export scene: background, padded video with
             rounded corners and shadow, and the live zoom transform. */}
         <div
